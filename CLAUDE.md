@@ -75,6 +75,20 @@ order-of-magnitude cold-start cost saving is a bonus.
 are never parsed out of prose, so a model cannot end a discussion by writing a persuasive
 sentence.
 
+## The one credential
+
+The challenger can run over Groq's API instead of a person pasting into a chat. Its key is read
+from the `GROQ_API_KEY` **environment variable and nowhere else** — there is deliberately no
+property, no file and no command-line flag for it, because the first two get committed and the
+third lands in shell history and the process list.
+
+With no key set the challenger falls back to the manual path. That is a designed default, not a
+failure: `--start` writes the prompt for a person either way.
+
+`gitleaks` and `scripts/redaction-check.sh` both match the key shape, and the redaction check also
+rejects a hardcoded `GROQ_API_KEY=` assignment. Both are verified against planted keys, because a
+scanner that has never rejected anything is not known to work.
+
 ## Public repository, so
 
 Never commit: absolute paths under a user home, email addresses, account or organisation

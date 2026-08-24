@@ -130,3 +130,21 @@ assumption — see [docs/data-handling.md](docs/data-handling.md).
 ## Licence
 
 [MIT](LICENSE)
+
+## Running the challenger automatically
+
+By default the challenger turn is prepared for a person to paste into a chat. Setting a Groq
+key lets it run unattended instead:
+
+```bash
+export GROQ_API_KEY=...        # free tier, no card; nothing else needs configuring
+```
+
+The environment variable is the only place the key is read from. Do not put it in a properties
+file or on the command line.
+
+The free tier allows 8,000 tokens per minute counting input and output together, which one
+substantive turn can nearly exhaust. The schema therefore travels as a request parameter rather
+than inside the prompt, and the completion is capped so a long reply fails fast instead of
+arriving truncated mid-argument. A rate limit is not an error: the round falls back to the
+manual path with the prompt already written.
