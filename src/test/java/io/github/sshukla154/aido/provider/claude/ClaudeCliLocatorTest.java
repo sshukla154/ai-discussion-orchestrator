@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -73,14 +74,16 @@ class ClaudeCliLocatorTest {
         System.setProperty(ClaudeCliLocator.OVERRIDE_PROPERTY,
                 dir.resolve("nope").toString());
 
-        // Absence is a normal condition on a machine without the CLI, so this only asserts the
-        // message when the throw actually happens.
-        if (ClaudeCliLocator.locate().isEmpty()) {
-            assertThatThrownBy(ClaudeCliLocator::require)
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining(ClaudeCliLocator.OVERRIDE_PROPERTY)
-                    .hasMessageContaining(ClaudeCliLocator.OVERRIDE_ENV);
-        }
+        // On a machine with a real CLI on PATH the fallback succeeds and there is nothing to
+        // assert. Skipping says so out loud; an `if` with no `else` would report green having
+        // verified nothing, which is indistinguishable from a passing check.
+        Assumptions.assumeTrue(ClaudeCliLocator.locate().isEmpty(),
+                "a real CLI is installed, so require() cannot be made to fail here");
+
+        assertThatThrownBy(ClaudeCliLocator::require)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(ClaudeCliLocator.OVERRIDE_PROPERTY)
+                .hasMessageContaining(ClaudeCliLocator.OVERRIDE_ENV);
     }
 
     private Path executableFile(String name) throws Exception {

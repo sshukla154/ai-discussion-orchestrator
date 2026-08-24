@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
  * <p>Run with: {@code mvn -q compile spring-boot:run -Dspring-boot.run.arguments=--probe}
  */
 @Component
-public class ClaudeProbeRunner implements ApplicationRunner {
+public final class ClaudeProbeRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeProbeRunner.class);
 
@@ -75,7 +75,8 @@ public class ClaudeProbeRunner implements ApplicationRunner {
                 log.info("  session       : {}", s.sessionId());
                 log.info("  model         : {}", s.resolvedModel().orElse("unresolved"));
                 log.info("  stop_reason   : {}", s.stopReason());
-                log.info("  structured    : {}", s.structuredOutput().orElse(null));
+                // Response content, so DEBUG only -- the rule logOutcome already follows.
+                log.debug("  structured    : {}", s.structuredOutput().orElse(null));
                 log.info("  tokens        : in={} out={} cacheCreate={} cacheRead={}",
                         s.usage().inputTokens(), s.usage().outputTokens(),
                         s.usage().cacheCreationInputTokens(), s.usage().cacheReadInputTokens());
@@ -84,12 +85,18 @@ public class ClaudeProbeRunner implements ApplicationRunner {
             case CliResult.Truncated t ->
                     log.error("PROBE hit the output ceiling after {} tokens; the reply is a fragment",
                             t.usage().outputTokens());
-            case CliResult.RateLimited r ->
-                    log.error("PROBE rate limited status={} message={}",
-                            r.httpStatus().map(String::valueOf).orElse("-"), r.message());
-            case CliResult.ApiError e ->
-                    log.error("PROBE api error status={} message={}",
-                            e.httpStatus().map(String::valueOf).orElse("-"), e.message());
+            // Error text arrives in the same envelope field as an ordinary reply, so it is
+            // treated as response content and kept at DEBUG.
+            case CliResult.RateLimited r -> {
+                log.error("PROBE rate limited status={}",
+                        r.httpStatus().map(String::valueOf).orElse("-"));
+                log.debug("  message       : {}", r.message());
+            }
+            case CliResult.ApiError e -> {
+                log.error("PROBE api error status={}",
+                        e.httpStatus().map(String::valueOf).orElse("-"));
+                log.debug("  message       : {}", e.message());
+            }
             case CliResult.SpawnFailed f ->
                     log.error("PROBE could not start the CLI: {}", f.message());
             case CliResult.PreflightError e ->

@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
  * <p>Every exit path produces a {@link ProcessOutcome}, so {@link CliResultParser} is the single
  * place where meaning is assigned to what the OS returned.
  */
-public class ClaudeCliClient {
+public final class ClaudeCliClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeCliClient.class);
 
@@ -100,7 +100,7 @@ public class ClaudeCliClient {
             // On its own thread as well. A prompt larger than the pipe buffer, handed to a child
             // that is alive but not reading, would otherwise block the calling thread with no
             // timeout at all. Debate prompts carrying a transcript pass that size easily.
-            Future<Void> stdin = io.submit(() -> writePromptToStdin(process, request.prompt()));
+            Future<Boolean> stdin = io.submit(() -> writePromptToStdin(process, request.prompt()));
 
             boolean exited = process.waitFor(request.timeout().toMillis(), TimeUnit.MILLISECONDS);
             if (!exited) {
@@ -112,11 +112,11 @@ public class ClaudeCliClient {
 
             Drained out = awaitDrain(stdout, "stdout");
             Drained err = awaitDrain(stderr, "stderr");
-            reportStdinOutcome(stdin);
+            boolean promptDelivered = awaitPromptDelivery(stdin);
 
             CliResult result = parser.parse(ProcessOutcome.exited(
                     process.exitValue(), out.text(), err.text(), out.complete(), err.complete(),
-                    elapsedMillis(start), pid, processStart));
+                    promptDelivered, elapsedMillis(start), pid, processStart));
             logOutcome(result, processStart);
             return result;
         } catch (InterruptedException e) {
@@ -189,10 +189,11 @@ public class ClaudeCliClient {
      * of input, and may well answer a mangled question with a perfectly well-formed envelope.
      * That deserves a warning rather than a debug line nobody sees.
      */
-    private Void writePromptToStdin(Process process, String prompt) {
+    private boolean writePromptToStdin(Process process, String prompt) {
         try (OutputStream in = process.getOutputStream()) {
             in.write(prompt.getBytes(StandardCharsets.UTF_8));
             in.flush();
+            return true;
         } catch (IOException e) {
             if (process.isAlive()) {
                 log.warn("failed to write the prompt to a live CLI process ({}); "
@@ -200,21 +201,31 @@ public class ClaudeCliClient {
             } else {
                 log.debug("CLI exited before reading its prompt: {}", e.getMessage());
             }
+            return false;
         }
-        return null;
     }
 
-    private void reportStdinOutcome(Future<Void> stdin) {
+    /**
+     * @return whether the whole prompt is known to have reached the child. A {@code false} is not
+     *         automatically a failure -- a child that exits early on a pre-flight error
+     *         legitimately never reads stdin -- but it does mean a success envelope cannot be
+     *         trusted, because the model may have answered a truncated question.
+     */
+    private boolean awaitPromptDelivery(Future<Boolean> stdin) {
         try {
-            stdin.get(DRAIN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+            return Boolean.TRUE.equals(stdin.get(DRAIN_GRACE.toMillis(), TimeUnit.MILLISECONDS));
         } catch (TimeoutException e) {
+            stdin.cancel(true);
             log.warn("the prompt was still being written when the CLI exited; "
                     + "it may have received only part of it");
+            return false;
         } catch (ExecutionException e) {
             log.warn("writing the prompt failed: {}",
                     e.getCause() == null ? e.getMessage() : e.getCause().getMessage());
+            return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return false;
         }
     }
 

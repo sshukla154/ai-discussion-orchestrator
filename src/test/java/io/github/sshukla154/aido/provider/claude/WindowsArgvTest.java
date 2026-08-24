@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The escaping is asserted directly rather than only through a spawned process, because the
@@ -46,9 +47,22 @@ class WindowsArgvTest {
     }
 
     @Test
-    @DisplayName("a trailing backslash run is preserved")
-    void preservesTrailingBackslashes() {
-        assertThat(WindowsArgv.escapeForWindowsChild("\"a\"\\\\")).isEqualTo("\\\"a\\\"\\\\");
+    @DisplayName("a trailing backslash run is preserved when there is no quote to protect")
+    void preservesTrailingBackslashesWithoutQuotes() {
+        // No quote means the early return leaves the value alone, so the run survives intact.
+        assertThat(WindowsArgv.escapeForWindowsChild("C:\tmp\\\\")).isEqualTo("C:\tmp\\\\");
+    }
+
+    @Test
+    @DisplayName("a quote plus a trailing backslash run is refused rather than guessed at")
+    void refusesTheUnverifiedCombination() {
+        // Such a run becomes "immediately before a quote" once the JVM appends its own closing
+        // quote, so it would need doubling -- but that has never been measured against a real
+        // child, and every escaping rule in this class comes from measurement. Refusing beats
+        // emitting something unverified. Unreachable from the only caller, whose values are JSON.
+        assertThatThrownBy(() -> WindowsArgv.escapeForWindowsChild("\"a\"\\\\"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unverified");
     }
 
     @Test

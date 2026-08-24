@@ -1,0 +1,32 @@
+# Persistence configuration for the SQLite spike, kept as a named profile rather than a test
+# application.yaml so it can never shadow the production file by classpath accident.
+#
+# This is the configuration the spike proved works: Boot 4.1.1, Hibernate 7.4.5, the community
+# SQLite dialect, Flyway, and a text-backed Instant converter. It moves to main resources when
+# the real entities arrive.
+spring:
+  datasource:
+    # Overridden per run by the spike, which needs a fresh file each time.
+    url: jdbc:sqlite:target/spike-db/spike.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&synchronous=NORMAL
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      # SQLite permits exactly one writer. A pool of one removes the whole SQLITE_BUSY class at
+      # no cost for a single-user application, and makes a connection leak fail immediately
+      # rather than intermittently.
+      maximum-pool-size: 1
+      pool-name: sqlite-pool
+      leak-detection-threshold: 30000
+
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      # Never "update". SQLite's ALTER TABLE cannot apply most changes and Hibernate declines
+      # them quietly, so the schema drifts until a query fails. "validate" makes that a startup
+      # failure instead. It is also what caught Flyway silently not running at all.
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/spike
+    clean-disabled: true

@@ -4,38 +4,14 @@ spring:
   main:
     web-application-type: none
 
-  datasource:
-    # Off the repository and off any synced or network drive -- see docs/data-handling.md.
-    # Pragmas live in the URL so they apply from the first connection; journal_mode persists
-    # once set, so it is a one-time switch rather than a per-connection ritual.
-    url: jdbc:sqlite:${user.home}/.ai-discussion-orchestrator/aido.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&synchronous=NORMAL
-    driver-class-name: org.sqlite.JDBC
-    hikari:
-      # SQLite permits exactly one writer. A pool of one eliminates the whole SQLITE_BUSY
-      # class at no cost for a single-user application -- and with one connection, a leak is
-      # immediately fatal, so detection is worth having.
-      maximum-pool-size: 1
-      pool-name: sqlite-pool
-      leak-detection-threshold: 30000
-
-  jpa:
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
-    # Never "update". SQLite's ALTER TABLE cannot apply most changes, and Hibernate declines
-    # them quietly rather than loudly, so the schema drifts until a query fails. "validate"
-    # turns that into a startup failure instead.
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-    # The database is a single local file holding the only copy of the discussion history.
-    clean-disabled: true
-    # No migrations exist yet; the real schema arrives with the discussion engine.
-    fail-on-missing-locations: false
-
 logging:
   level:
-    # Prompts and responses are private reasoning and are never logged above DEBUG.
+    # Prompts and responses carry private reasoning and are never logged above DEBUG.
     io.github.sshukla154.aido: INFO
+
+# No datasource here on purpose. Phase one writes plain files, so the application boots without
+# a database at all -- and the architecture test keeps main sources free of jakarta.persistence
+# so that stays true rather than becoming a comment nobody rechecks.
+#
+# The persistence configuration proven by the spike lives in
+# src/test/resources/application-persistence.yaml, and moves here when real entities arrive.

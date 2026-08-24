@@ -20,7 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
  * rearranged.
  */
 @Component
-public class CliResultParser {
+public final class CliResultParser {
 
     private static final int EXCERPT_LIMIT = 4_000;
 
@@ -95,6 +95,19 @@ public class CliResultParser {
             return classifyError(root, outcome);
         }
 
+        // Checked only here, on the path that would otherwise report success. A child that
+        // exits early on a pre-flight error never reads stdin, so an undelivered prompt there is
+        // expected and the error classification is the useful answer. On this path, a
+        // well-formed envelope may be the model answering a truncated question -- which is worse
+        // than an obvious failure, because nothing about it looks wrong.
+        if (!outcome.promptDelivered()) {
+            return new CliResult.Unparseable(outcome.exitCode(), excerpt(outcome.stdout()),
+                    excerpt(outcome.stderr()),
+                    "the CLI reported success but delivery of the prompt was never confirmed, "
+                            + "so the reply may answer a truncated question",
+                    outcome.wallMillis());
+        }
+
         String stopReason = root.path("stop_reason").asString("");
         CliResult.Usage usage = readUsage(root.path("usage"));
 
@@ -119,8 +132,8 @@ public class CliResultParser {
     }
 
     private CliResult classifyError(JsonNode root, ProcessOutcome outcome) {
-        JsonNode statusNode = root.get("api_error_status");
-        Optional<Integer> status = statusNode == null || statusNode.isNull()
+        JsonNode statusNode = root.path("api_error_status");
+        Optional<Integer> status = statusNode.isMissingNode() || statusNode.isNull()
                 ? Optional.empty()
                 : Optional.of(statusNode.asInt());
         String message = root.path("result").asString("");
@@ -156,8 +169,8 @@ public class CliResultParser {
             return Optional.of(modelUsage.propertyNames().iterator().next());
         }
 
-        JsonNode topOutput = root.path("usage").get("output_tokens");
-        if (topOutput == null || topOutput.isNull()) {
+        JsonNode topOutput = root.path("usage").path("output_tokens");
+        if (topOutput.isMissingNode() || topOutput.isNull()) {
             return Optional.empty();
         }
         long target = topOutput.asLong();
@@ -178,8 +191,8 @@ public class CliResultParser {
 
     /** Present only when {@code --json-schema} was supplied; already validated by the CLI. */
     private Optional<Map<String, Object>> readStructuredOutput(JsonNode root) {
-        JsonNode node = root.get("structured_output");
-        if (node == null || node.isNull() || !node.isObject()) {
+        JsonNode node = root.path("structured_output");
+        if (!node.isObject()) {
             return Optional.empty();
         }
         Map<String, Object> out = new LinkedHashMap<>();
