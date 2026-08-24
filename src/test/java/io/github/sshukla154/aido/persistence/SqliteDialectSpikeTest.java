@@ -4,8 +4,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -16,10 +16,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import io.github.sshukla154.aido.common.time.UtcInstantConverter;
+import io.github.sshukla154.aido.common.time.UtcInstantFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,8 +45,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>{@code ddl-auto=validate} carries most of the value here: it compares the entity mapping
  * against the schema Flyway created and fails startup on a mismatch, so drift is caught at boot
  * rather than by the first query to touch a bad column.
+ *
+ * <p>Runs under the {@code persistence} profile. Phase one has no database, so the datasource
+ * configuration is test-scoped -- this test is the only thing that needs it, and the
+ * architecture test keeps main sources free of persistence dependencies until phase two.
  */
 @SpringBootTest
+@ActiveProfiles("persistence")
 class SqliteDialectSpikeTest {
 
     /**
@@ -78,9 +84,8 @@ class SqliteDialectSpikeTest {
         registry.add("spring.datasource.url", () ->
                 "jdbc:sqlite:" + db
                         + "?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&synchronous=NORMAL");
-        // The spike entity lives in test sources, so it needs its own migration rather than
-        // the (currently empty) production one.
-        registry.add("spring.flyway.locations", () -> "classpath:db/spike");
+        // Everything else -- dialect, ddl-auto, pool size, migration location -- comes from
+        // the "persistence" profile, which is the configuration this spike exists to validate.
     }
 
     @Test
@@ -118,14 +123,16 @@ class SqliteDialectSpikeTest {
         repository.saveAndFlush(new SpikeRecord(id, "raw", nextSeq(),
                 SpikeRecord.Kind.ALPHA, false, Instant.parse("2026-08-24T11:16:43.700Z")));
 
-        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-            ResultSet rs = s.executeQuery(
-                    "SELECT created_at, kind, flagged FROM spike_record WHERE id = '" + id + "'");
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement s = c.prepareStatement(
+                     "SELECT created_at, kind, flagged FROM spike_record WHERE id = ?")) {
+            s.setString(1, id);
+            ResultSet rs = s.executeQuery();
             assertThat(rs.next()).isTrue();
             String storedTimestamp = rs.getString("created_at");
 
             assertThat(storedTimestamp).isEqualTo("2026-08-24T11:16:43.700Z");
-            assertThat(storedTimestamp).hasSize(UtcInstantConverter.WIDTH);
+            assertThat(storedTimestamp).hasSize(UtcInstantFormat.WIDTH);
             assertThat(rs.getString("kind")).isEqualTo("ALPHA");
             assertThat(rs.getInt("flagged")).isZero();
         }
@@ -177,7 +184,8 @@ class SqliteDialectSpikeTest {
     void urlPragmasTakeEffect() throws Exception {
         // Asking for a pragma in the URL and having it applied are different things. A
         // silently-ignored journal_mode would only show up later as lock contention.
-        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
+        try (Connection c = dataSource.getConnection();
+             java.sql.Statement s = c.createStatement()) {
             ResultSet journal = s.executeQuery("PRAGMA journal_mode");
             assertThat(journal.next()).isTrue();
             assertThat(journal.getString(1)).isEqualToIgnoringCase("wal");

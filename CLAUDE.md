@@ -16,7 +16,8 @@ several of the surprises there are load-bearing.
 | Jackson | **3.x**, so imports are `tools.jackson.*`, not `com.fasterxml.jackson.*` (annotations are still `com.fasterxml.jackson.annotation`) |
 | Tests | JUnit Jupiter 6, AssertJ. No mocking of the CLI boundary — a real stub process is spawned instead, see `StubCli` |
 | Build | Maven 3.9+ |
-| Planned | SQLite + Flyway + Spring Data JPA (phase 2), Vite/React (phase 5) |
+| Persistence | **test scope only.** Phase one writes plain files; `ArchitectureTest` fails the build if main sources touch `jakarta.persistence`, `org.hibernate`, `org.springframework.data.jpa` or `org.flywaydb`. Moves to compile scope in phase 2 |
+| Planned | Vite/React (phase 5) |
 
 ## Commands
 
@@ -26,7 +27,16 @@ mvn -B verify -Plive          # spawns the real CLI; local only, costs money
 scripts/redaction-check.sh    # what CI enforces about public content
 ```
 
+A `@SpringBootTest` needs `@ActiveProfiles("persistence")` if it wants a datasource — the JPA
+starter is on the test classpath, so autoconfiguration will otherwise fail for want of a URL.
+`src/test/resources/application-persistence.yaml` holds that configuration.
+
 ## Rules that are not style preferences
+
+These are enforced by `ArchitectureTest`, not by reviewer memory: no class that can reach
+`ClaudeCliClient` is `@Transactional`, `Propagation.REQUIRES_NEW` appears nowhere, and main
+sources carry no persistence dependency. Fixtures under `archfixture` prove each rule actually
+rejects a violator, because an architecture rule that matches nothing is green and worthless.
 
 **No database transaction may span a provider call.** A turn can legitimately run for five
 minutes, and the connection pool is size 1 because SQLite has a single writer. Holding a

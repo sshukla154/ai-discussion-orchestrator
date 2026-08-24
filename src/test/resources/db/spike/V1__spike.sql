@@ -26,7 +26,7 @@ CREATE TABLE spike_record (
     -- Enum stored by name. Ordinals make the database unreadable and every reorder a migration.
     kind        VARCHAR NOT NULL,
     flagged     BOOLEAN NOT NULL,
-    -- Fixed-width ISO-8601 UTC, 24 characters. See UtcInstantConverter for why the width is
+    -- Fixed-width ISO-8601 UTC, 24 characters. See UtcInstantFormat for why the width is
     -- not cosmetic: unpadded milliseconds break lexicographic ordering silently.
     created_at  VARCHAR NOT NULL,
     version     BIGINT  NOT NULL
