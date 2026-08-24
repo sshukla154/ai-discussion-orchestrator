@@ -54,6 +54,18 @@ scan "Unix-style mount path to a Windows user profile" \
 scan "Expanded home-directory variable baked into a literal" \
      '%(USERPROFILE|HOMEPATH|LOCALAPPDATA)%[\\/]'
 
+# --- Credentials ------------------------------------------------------------------
+# The project has exactly one credential. gitleaks matches its shape too, but this runs
+# even where gitleaks does not, and it also catches an env file staged by accident.
+scan "a Groq API key in a tracked file" \
+     'gsk_[A-Za-z0-9]{10,}'
+
+# The 16-character bound separates a real key from a placeholder: documentation showing
+# an "export GROQ_API_KEY=..." example must not be a finding, or the rule gets deleted
+# for crying wolf. A quoted value is caught by the gsk_ pattern above regardless.
+scan "a hardcoded GROQ_API_KEY value; it must come from the environment only" \
+     'GROQ_API_KEY[[:space:]]*[=:][[:space:]]*[A-Za-z0-9_-]{16,}'
+
 # --- Identity ---------------------------------------------------------------------
 # Any real email address. The GitHub noreply address used for commit authorship is the
 # single permitted form. Done in two stages because ERE has no negative lookahead, and
