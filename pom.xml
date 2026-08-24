@@ -25,9 +25,7 @@
   </properties>
 
   <dependencies>
-    <!-- Deliberately NOT spring-boot-starter-web. There is no HTTP surface until
-         a later phase, and adding one now would invite a synchronous request
-         thread to wait on a 300s subprocess. -->
+    <!-- Deliberately NOT spring-boot-starter-web; see AiDiscussionOrchestratorApplication. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter</artifactId>
