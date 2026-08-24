@@ -24,6 +24,8 @@ import io.github.sshukla154.aido.debate.DebateTurnParser;
 import io.github.sshukla154.aido.debate.PromptTemplate;
 import io.github.sshukla154.aido.debate.TurnParse;
 import io.github.sshukla154.aido.provenance.ProvenanceStore;
+import io.github.sshukla154.aido.provider.groq.ChallengerOutcome;
+import io.github.sshukla154.aido.provider.groq.GroqChallengerProvider;
 import io.github.sshukla154.aido.provenance.RunDescriptor;
 import io.github.sshukla154.aido.provenance.RunHandle;
 import io.github.sshukla154.aido.provenance.RunId;
@@ -76,10 +78,13 @@ public final class RoundRunner {
     private final ObjectProvider<ClaudeCliClient> client;
     private final DebateTurnParser turnParser;
     private final ProvenanceStore provenance;
+    private final GroqChallengerProvider challenger;
     private final String schemaText;
 
-    public RoundRunner(ObjectProvider<ClaudeCliClient> client, DebateTurnParser turnParser,
+    public RoundRunner(GroqChallengerProvider challenger,
+                       ObjectProvider<ClaudeCliClient> client, DebateTurnParser turnParser,
                        ProvenanceStore provenance) {
+        this.challenger = challenger;
         this.client = client;
         this.turnParser = turnParser;
         this.provenance = provenance;
@@ -112,6 +117,14 @@ public final class RoundRunner {
 
         Path promptFile = run.runDirectory().resolve(CHALLENGER_PROMPT_FILE);
         write(promptFile, challengerPrompt);
+
+        // The prompt file is written either way. When the API path works the file is the record of
+        // what was asked; when it does not, it is what a person pastes. Writing it unconditionally
+        // means the manual fallback needs no extra step at the moment it is needed.
+        Optional<DebateTurn> automatic = runAutomaticChallenger(question, opening, ledger);
+        if (automatic.isPresent()) {
+            log.info("challenger answered over the API; the round can complete without a person");
+        }
 
         new DiscussionState(question.question(), question.objective(), question.constraints(),
                 MAPPER.convertValue(opening, Map.class), null).writeTo(run.runDirectory());
@@ -215,6 +228,17 @@ public final class RoundRunner {
 
     private String renderChallengerPrompt(DiscussionQuestion question, DebateTurn opening,
                                           ClaimLedger ledger) {
+        return renderChallengerPrompt(question, opening, ledger, schemaText);
+    }
+
+    /**
+     * @param schemaForPrompt the schema itself for a human who must paste it, or a short pointer
+     *                        for the API path, where it travels as a request parameter instead.
+     *                        That difference is worth roughly 1,300 tokens, which matters on a tier
+     *                        allowing 8,000 per minute across input and output together.
+     */
+    private String renderChallengerPrompt(DiscussionQuestion question, DebateTurn opening,
+                                          ClaimLedger ledger, String schemaForPrompt) {
         return PromptTemplate.load("challenger-challenge").render(Map.of(
                 "originalQuestion", question.question(),
                 "objective", question.objective(),
@@ -224,7 +248,61 @@ public final class RoundRunner {
                 "roundCount", "1",
                 "architectPosition", opening.argument() + "\n\n" + opening.positionSummary(),
                 "existingClaimKeys", ledger.render(),
-                "responseSchema", schemaText));
+                "responseSchema", schemaForPrompt));
+    }
+
+    /**
+     * Attempts the challenger over the API, returning empty when it is unavailable or fails.
+     *
+     * <p>Never throws. An absent key is the designed default rather than a fault, and a rate limit
+     * on a free tier is an ordinary event -- in both cases the round degrades to the manual path
+     * with the prompt already on disk, which is strictly better than aborting a run whose architect
+     * turn has already been paid for.
+     */
+    private Optional<DebateTurn> runAutomaticChallenger(DiscussionQuestion question,
+                                                        DebateTurn opening, ClaimLedger ledger) {
+        // The schema is a request parameter on this path, so the prompt carries a pointer instead
+        // of the 4,700-byte document a human would need pasted.
+        String prompt = renderChallengerPrompt(question, opening, ledger,
+                "Reply as a single JSON object matching the schema supplied with this request.");
+
+        ChallengerOutcome outcome = challenger.challenge(prompt, schemaText);
+        switch (outcome) {
+            case ChallengerOutcome.Success success -> {
+                TurnParse parse = turnParser.parse(Optional.of(success.structuredOutput()));
+                if (parse instanceof TurnParse.Parsed parsed) {
+                    log.info("challenger tokens in={} out={} remaining={}",
+                            success.usage().promptTokens(), success.usage().completionTokens(),
+                            success.usage().remainingTokens().map(String::valueOf).orElse("unreported"));
+                    return Optional.of(parsed.turn());
+                }
+                log.warn("challenger replied but the turn did not match the schema; "
+                        + "falling back to the manual path");
+                return Optional.empty();
+            }
+            case ChallengerOutcome.RateLimited limited -> {
+                log.warn("challenger rate limited{}; falling back to the manual path",
+                        limited.retryAfter().map(d -> ", retry after " + d.toSeconds() + "s").orElse(""));
+                return Optional.empty();
+            }
+            case ChallengerOutcome.Unavailable unavailable -> {
+                log.info("{}", unavailable.reason());
+                return Optional.empty();
+            }
+            case ChallengerOutcome.Rejected rejected -> {
+                log.warn("challenger rejected the request with status {}: {}",
+                        rejected.httpStatus(), rejected.message());
+                return Optional.empty();
+            }
+            case ChallengerOutcome.Malformed malformed -> {
+                log.warn("challenger reply unusable: {}", malformed.reason());
+                return Optional.empty();
+            }
+            case ChallengerOutcome.TransportFailure failure -> {
+                log.warn("could not reach the challenger: {}", failure.reason());
+                return Optional.empty();
+            }
+        }
     }
 
     private TurnParse parseReply(Path replyFile) {
