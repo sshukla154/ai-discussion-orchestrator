@@ -1,4 +1,4 @@
-# --- Claude Code local config: never tracked (see docs/security.md) ---
+# --- Claude Code local config: never tracked (see docs/data-handling.md) ---
 .claude/
 
 # --- Runtime data: transcripts and DB live OUTSIDE the repo, but belt-and-braces ---
@@ -13,11 +13,11 @@ data/
 
 # --- Java / Maven ---
 target/
-!.mvn/wrapper/maven-wrapper.jar
 .mvn/timing.properties
 *.class
-*.jar
 *.war
+# Not *.jar: a blanket rule here would also exclude .mvn/wrapper/maven-wrapper.jar, and a
+# later negation cannot rescue it. Build output is already covered by target/.
 hs_err_pid*
 replay_pid*
 
