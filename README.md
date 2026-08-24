@@ -11,6 +11,45 @@ Doing this by hand means shuttling text between two browser tabs. Context is los
 neither side sees the whole thread, and there is no record afterwards of what was agreed rather
 than merely asserted.
 
+## Running a round
+
+A round is two commands, because the challenger is a person pasting into a separate chat. Between
+them nothing is running, so a laptop can be closed mid-discussion.
+
+Write the question as markdown:
+
+```markdown
+# Question
+Should we shard by tenant or by region?
+
+# Objective
+Pick one and know what we are trading away.
+
+# Constraints
+- single-writer SQLite, one connection
+- no cross-region transactions
+```
+
+Run the architect's opening turn:
+
+```bash
+mvn -B -q compile spring-boot:run -Dspring-boot.run.arguments="--start --question=question.md"
+```
+
+It prints the run directory and the path of a challenger prompt. Paste that prompt into a separate
+chat, and save the JSON reply to a file. Then:
+
+```bash
+mvn -B -q compile spring-boot:run -Dspring-boot.run.arguments="--answer --run=<run-dir> --reply=reply.json"
+```
+
+The result is a markdown document in the run directory: where the two sides landed, what was
+settled, what is still open with why it matters and what would settle it, and what you have to
+decide. It never reports agreement that both sides did not independently state.
+
+Which model argues, and how hard, is configured under `aido.discussion` and recorded with every
+turn -- without that, comparing two saved discussions is meaningless.
+
 ## Status
 
 **Early.** Phase 0 (provider feasibility) is complete and its findings are in
