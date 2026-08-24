@@ -28,9 +28,14 @@ class ProvenanceStoreTest {
      * A prompt built to break naive handling: a code fence, a Windows path with backslashes, a
      * literal percent, a double quote, CRLF, a tab, and a character outside the basic multilingual
      * plane. Every one of these has a plausible way of being mangled between memory and disk.
+     *
+     * <p>The drive path deliberately avoids the Windows user-profile prefix: the redaction
+     * check forbids it in any tracked file, and rightly so, since a pattern loose enough to
+     * permit a synthetic one would permit a real one. Backslashes and a drive letter are all
+     * this fixture needs; the specific directory is irrelevant.
      */
     private static final String NASTY_PROMPT = "Constraints:\r\n"
-            + "- path is C:\\Users\\x\\file.txt and 100% of it\n"
+            + "- path is D:\\build\\out\\file.txt and 100% of it\n"
             + "- she said \"no\"\n"
             + "\tindented\n"
             + "```java\nvar x = 1;\n```\n"
