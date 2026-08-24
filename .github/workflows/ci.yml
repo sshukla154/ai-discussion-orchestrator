@@ -25,6 +25,20 @@ jobs:
           java-version: '25'
           cache: maven
 
+      # Retried separately from the build, because Maven Central returns the occasional
+      # 502 and losing a run to someone else's bad gateway is pure noise. Retrying the
+      # *build* instead would be worse: a genuine test failure would be re-run three
+      # times before reporting, turning a fast red into a slow one. Warming the local
+      # repository first keeps the retry where the flakiness actually is.
+      - name: Resolve dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if mvn -B --no-transfer-progress dependency:go-offline; then exit 0; fi
+            echo "resolution attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "dependency resolution still failing; continuing so the build reports the real error"
+
       # Hermetic by construction. Every test that touches the real Claude CLI is tagged
       # "live" and excluded here -- the CLI is not installed on a runner, and
       # authenticating it would mean putting a credential in repository secrets, which
