@@ -11,10 +11,16 @@ import java.util.Optional;
  * spawning anything. Every path in {@link ClaudeCliClient} produces one of these -- including
  * timeout and spawn failure -- so there is exactly one place where meaning is assigned.
  *
- * @param stdoutComplete whether the stdout drain finished. This is load-bearing: an incomplete
- *                       drain also yields blank stdout, which is otherwise indistinguishable
- *                       from a pre-flight failure. Classifying a possibly-completed turn as
- *                       "the prompt never landed" would license a duplicate retry.
+ * @param stdoutComplete   whether the stdout drain finished. This is load-bearing: an
+ *                         incomplete drain also yields blank stdout, which is otherwise
+ *                         indistinguishable from a pre-flight failure. Classifying a
+ *                         possibly-completed turn as "the prompt never landed" would license a
+ *                         duplicate retry.
+ * @param promptDelivered  whether the whole prompt reached the child. A child that exits early
+ *                         legitimately never reads stdin, so this is only suspicious on a path
+ *                         that would otherwise report success -- there, an unconfirmed prompt
+ *                         means the model may have answered a truncated question with a
+ *                         perfectly well-formed envelope.
  */
 record ProcessOutcome(
         Status status,
@@ -23,6 +29,7 @@ record ProcessOutcome(
         String stderr,
         boolean stdoutComplete,
         boolean stderrComplete,
+        boolean promptDelivered,
         long wallMillis,
         Optional<Long> pid,
         Optional<Instant> processStart,
@@ -41,23 +48,24 @@ record ProcessOutcome(
 
     static ProcessOutcome exited(int exitCode, String stdout, String stderr,
                                  boolean stdoutComplete, boolean stderrComplete,
-                                 long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
+                                 boolean promptDelivered, long wallMillis,
+                                 Optional<Long> pid, Optional<Instant> processStart) {
         return new ProcessOutcome(Status.EXITED, exitCode, stdout, stderr,
-                stdoutComplete, stderrComplete, wallMillis, pid, processStart, "");
+                stdoutComplete, stderrComplete, promptDelivered, wallMillis, pid, processStart, "");
     }
 
     static ProcessOutcome timedOut(long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
-        return new ProcessOutcome(Status.TIMED_OUT, -1, "", "", false, false,
+        return new ProcessOutcome(Status.TIMED_OUT, -1, "", "", false, false, false,
                 wallMillis, pid, processStart, "");
     }
 
     static ProcessOutcome spawnFailed(String message, long wallMillis) {
-        return new ProcessOutcome(Status.SPAWN_FAILED, -1, "", "", false, false,
+        return new ProcessOutcome(Status.SPAWN_FAILED, -1, "", "", false, false, false,
                 wallMillis, Optional.empty(), Optional.empty(), message);
     }
 
     static ProcessOutcome interrupted(long wallMillis, Optional<Long> pid) {
-        return new ProcessOutcome(Status.INTERRUPTED, -1, "", "", false, false,
+        return new ProcessOutcome(Status.INTERRUPTED, -1, "", "", false, false, false,
                 wallMillis, pid, Optional.empty(), "interrupted while awaiting the CLI");
     }
 }
