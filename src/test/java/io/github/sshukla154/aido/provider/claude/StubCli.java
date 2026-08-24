@@ -16,8 +16,13 @@ import java.util.Arrays;
  *
  * <p>The first argument selects a behaviour; everything after it is whatever the client under
  * test appended, and is available for round-trip assertions.
+ *
+ * <p>Writes to {@code System.out} and {@code System.err} directly, which is correct here rather
+ * than an oversight: this is a {@code main} impersonating a CLI binary, so the process streams
+ * are its contract with the parent. A logger would write somewhere else entirely and every test
+ * that reads the child output would fail.
  */
-public final class StubCli {
+final class StubCli {
 
     private StubCli() {
     }

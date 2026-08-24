@@ -131,7 +131,5 @@ public sealed interface CliResult {
             long outputTokens,
             long cacheCreationInputTokens,
             long cacheReadInputTokens) {
-
-        static final Usage EMPTY = new Usage(0L, 0L, 0L, 0L);
     }
 }

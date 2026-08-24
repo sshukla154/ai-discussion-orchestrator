@@ -55,6 +55,17 @@ final class WindowsArgv {
     }
 
     static String escapeForWindowsChild(String value) {
+        if (value.endsWith("\\") && value.indexOf('"') >= 0) {
+            // Refused rather than guessed. A trailing run becomes "immediately before a quote"
+            // once the JVM appends its own closing quote, so it would need doubling -- but that
+            // combination has never been measured against a real child, and the escaping in this
+            // class is derived from measurement rather than from documentation. It is also
+            // unreachable from the only caller, whose values are JSON and cannot end in a
+            // backslash. Emitting something unverified would be worse than refusing.
+            throw new IllegalArgumentException(
+                    "cannot safely escape a value that contains a quote and ends in a backslash; "
+                            + "the argv behaviour for that combination is unverified");
+        }
         if (value.indexOf('"') < 0) {
             // No quotes means nothing to protect. Leaving it untouched also avoids disturbing
             // a value that ends in a backslash, which would otherwise interact badly with the

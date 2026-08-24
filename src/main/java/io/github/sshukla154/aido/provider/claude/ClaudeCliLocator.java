@@ -1,10 +1,12 @@
 package io.github.sshukla154.aido.provider.claude;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Finds the Claude Code CLI without hardcoding an install location.
@@ -63,7 +65,7 @@ public final class ClaudeCliLocator {
         if (pathVar == null || pathVar.isBlank()) {
             return Optional.empty();
         }
-        for (String entry : pathVar.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
+        for (String entry : pathVar.split(Pattern.quote(File.pathSeparator))) {
             if (entry.isBlank()) {
                 continue;
             }

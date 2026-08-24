@@ -12,6 +12,4 @@ interface SpikeRecordRepository extends JpaRepository<SpikeRecord, String> {
      * diverges from chronological order and nothing throws.
      */
     List<SpikeRecord> findAllByOrderByCreatedAtAsc();
-
-    List<SpikeRecord> findAllByOrderBySeqAsc();
 }

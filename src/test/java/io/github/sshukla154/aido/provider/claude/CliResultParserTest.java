@@ -17,7 +17,7 @@ class CliResultParserTest {
     private final CliResultParser parser = new CliResultParser();
 
     private static ProcessOutcome exited(int exit, String stdout, String stderr) {
-        return ProcessOutcome.exited(exit, stdout, stderr, true, true, 1234L,
+        return ProcessOutcome.exited(exit, stdout, stderr, true, true, true, 1234L,
                 Optional.of(4242L), Optional.of(Instant.parse("2026-08-24T11:00:00Z")));
     }
 
@@ -131,7 +131,7 @@ class CliResultParserTest {
         // never landed" would license a retry of a turn that may already have completed and
         // been charged, which is how a debate acquires a duplicated turn.
         ProcessOutcome partial = ProcessOutcome.exited(0, "", "some stderr noise",
-                false, true, 100L, Optional.of(1L), Optional.empty());
+                false, true, true, 100L, Optional.of(1L), Optional.empty());
 
         CliResult result = parser.parse(partial);
 
@@ -256,6 +256,44 @@ class CliResultParserTest {
         assertThat(t.processStart())
                 .describedAs("Windows recycles pids, so the start instant is what makes the pid identifying")
                 .contains(started);
+    }
+
+    @Test
+    @DisplayName("a success envelope is not trusted when prompt delivery was never confirmed")
+    void unconfirmedPromptMakesSuccessUntrustworthy() {
+        // The dangerous shape: a partially-written prompt reaches a live child, which answers the
+        // truncated question with a perfectly well-formed envelope. Nothing about the response
+        // looks wrong, so only the delivery flag can catch it.
+        String stdout = """
+                {"is_error":false,"result":"a confident answer to half a question",\
+                "session_id":"s","stop_reason":"end_turn","usage":{"output_tokens":9},\
+                "modelUsage":{"claude-sonnet-5":{"outputTokens":9}}}""";
+        ProcessOutcome undelivered = ProcessOutcome.exited(0, stdout, "", true, true,
+                false, 100L, Optional.of(1L), Optional.empty());
+
+        CliResult result = parser.parse(undelivered);
+
+        assertThat(result).isInstanceOf(CliResult.Unparseable.class);
+        assertThat(((CliResult.Unparseable) result).reason())
+                .contains("never confirmed")
+                .contains("truncated question");
+    }
+
+    @Test
+    @DisplayName("an undelivered prompt does not mask a pre-flight error, which is the useful answer")
+    void unconfirmedPromptStillReportsPreflightErrors() {
+        // A child that rejects its arguments exits before reading stdin, so an undelivered
+        // prompt is expected here. Distrusting it would turn every pre-flight error into an
+        // opaque "unknown", losing the one classification that says a retry is safe.
+        ProcessOutcome undelivered = ProcessOutcome.exited(1, "",
+                "No conversation found with session ID: 9999", true, true,
+                false, 100L, Optional.of(1L), Optional.empty());
+
+        CliResult result = parser.parse(undelivered);
+
+        assertThat(result).isInstanceOf(CliResult.PreflightError.class);
+        assertThat(((CliResult.PreflightError) result).kind())
+                .isEqualTo(CliResult.PreflightError.Kind.UNKNOWN_SESSION);
     }
 
     private CliResult.PreflightError.Kind kindOf(String stderr) {
