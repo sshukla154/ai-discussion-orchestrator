@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
  * commit rather than after a layer of abstraction has been built on top of assumptions. It
  * asks a trivial question under a schema, then reports the parsed fields and token usage.
  *
- * <p>Run with: {@code mvn -q compile exec:java} or {@code java -jar ... --probe}
+ * <p>Run with: {@code mvn -q compile spring-boot:run -Dspring-boot.run.arguments=--probe}
  */
 @Component
 public class ClaudeProbeRunner implements ApplicationRunner {
@@ -73,7 +73,7 @@ public class ClaudeProbeRunner implements ApplicationRunner {
             case CliResult.Success s -> {
                 log.info("PROBE OK");
                 log.info("  session       : {}", s.sessionId());
-                log.info("  model         : {}", s.resolvedModel());
+                log.info("  model         : {}", s.resolvedModel().orElse("unresolved"));
                 log.info("  stop_reason   : {}", s.stopReason());
                 log.info("  structured    : {}", s.structuredOutput().orElse(null));
                 log.info("  tokens        : in={} out={} cacheCreate={} cacheRead={}",
@@ -81,9 +81,17 @@ public class ClaudeProbeRunner implements ApplicationRunner {
                         s.usage().cacheCreationInputTokens(), s.usage().cacheReadInputTokens());
                 log.info("  cost / wall   : {} USD / {} ms", s.totalCostUsd(), s.wallMillis());
             }
+            case CliResult.Truncated t ->
+                    log.error("PROBE hit the output ceiling after {} tokens; the reply is a fragment",
+                            t.usage().outputTokens());
+            case CliResult.RateLimited r ->
+                    log.error("PROBE rate limited status={} message={}",
+                            r.httpStatus().map(String::valueOf).orElse("-"), r.message());
             case CliResult.ApiError e ->
                     log.error("PROBE api error status={} message={}",
                             e.httpStatus().map(String::valueOf).orElse("-"), e.message());
+            case CliResult.SpawnFailed f ->
+                    log.error("PROBE could not start the CLI: {}", f.message());
             case CliResult.PreflightError e ->
                     log.error("PROBE preflight error kind={} stderr={}", e.kind(), e.stderr());
             case CliResult.Timeout t ->

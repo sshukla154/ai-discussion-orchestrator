@@ -23,24 +23,29 @@ import org.slf4j.LoggerFactory;
 /**
  * Runs the Claude Code CLI as a child process and reports a typed outcome.
  *
- * <p>Hand-written because no JVM SDK for the CLI exists. Three properties of this class are
- * not stylistic choices and should not be "simplified":
+ * <p>Hand-written because no JVM SDK for the CLI exists. Four properties of this class are not
+ * stylistic choices and should not be "simplified":
  *
  * <ol>
- *   <li><b>stdout and stderr are drained concurrently.</b> The two CLI error classes are
- *       distinguished by which stream carried the payload, so the streams cannot be merged.
- *       Once separated, a child whose pipe buffer fills while nobody reads it blocks
- *       forever, which presents as "works on short prompts, hangs on real ones".
+ *   <li><b>stdout and stderr are drained concurrently, and so is the stdin write.</b> The two CLI
+ *       error classes are distinguished by which stream carried the payload, so the streams
+ *       cannot be merged. Once separated, whichever party is not being serviced blocks as soon as
+ *       its pipe buffer fills -- which presents as "works on short prompts, hangs on real ones".
+ *   <li><b>Nothing in the return path waits on the executor.</b> See {@link #awaitDrain}.
  *   <li><b>The prompt goes to stdin.</b> Never argv. See {@link CliRequest}.
- *   <li><b>The executable is resolved from PATH at runtime.</b> An absolute install path is
- *       machine-identifying and must never reach a tracked file.
+ *   <li><b>The executable path arrives already resolved</b> from the caller (see
+ *       {@link ClaudeCliLocator}) or as a stub in tests. An absolute install path is
+ *       machine-identifying and must never be hardcoded into a tracked file.
  * </ol>
+ *
+ * <p>Every exit path produces a {@link ProcessOutcome}, so {@link CliResultParser} is the single
+ * place where meaning is assigned to what the OS returned.
  */
 public class ClaudeCliClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeCliClient.class);
 
-    /** Grace period for the drain tasks to finish after the child has exited. */
+    /** How long to wait for the stream readers once the child has gone. */
     private static final Duration DRAIN_GRACE = Duration.ofSeconds(10);
 
     private final List<String> launchPrefix;
@@ -52,8 +57,8 @@ public class ClaudeCliClient {
      *                         single resolved executable path; in tests, a stub process.
      * @param workingDirectory pinned for every turn. The CLI derives transcript location and
      *                         context discovery from its cwd, so varying it makes runs
-     *                         irreproducible. An empty directory also means no project config
-     *                         is discovered.
+     *                         irreproducible. An empty directory also means no project
+     *                         configuration is discovered.
      */
     public ClaudeCliClient(List<String> launchPrefix, Path workingDirectory, CliResultParser parser) {
         this.launchPrefix = List.copyOf(launchPrefix);
@@ -62,61 +67,64 @@ public class ClaudeCliClient {
     }
 
     public CliResult run(CliRequest request) {
-        List<String> command = buildCommand(request);
         long start = System.nanoTime();
 
-        ProcessBuilder pb = new ProcessBuilder(command)
+        ProcessBuilder pb = new ProcessBuilder(buildCommand(request))
                 .directory(workingDirectory.toFile())
-                // Mandatory: merging the streams would destroy the only signal that
-                // separates a pre-flight failure from an API error.
+                // Explicit despite matching the default -- see class javadoc item 1.
                 .redirectErrorStream(false);
 
         Process process;
         try {
             process = pb.start();
         } catch (IOException e) {
-            return new CliResult.Unparseable(-1, "", "", "failed to spawn CLI: " + e.getMessage(),
-                    elapsedMillis(start));
+            log.error("could not start the Claude CLI: {}", e.getMessage());
+            return parser.parse(ProcessOutcome.spawnFailed(
+                    "failed to spawn CLI: " + e.getMessage(), elapsedMillis(start)));
         }
 
         Optional<Long> pid = safePid(process);
-        // Captured together: a pid alone is not identifying, because Windows recycles pids
-        // freely. The pair is what lets a later restart tell "still our child" from "some
-        // unrelated process that inherited the number".
-        Optional<Instant> procStart = process.info().startInstant();
+        Optional<Instant> processStart = process.info().startInstant();
         log.info("spawned Claude CLI pid={} sessionMode={} timeout={}s",
                 pid.map(String::valueOf).orElse("?"), request.sessionMode(), request.timeout().toSeconds());
 
-        try (ExecutorService drains = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<String> stdout = drains.submit(() -> readFully(process.getInputStream()));
-            Future<String> stderr = drains.submit(() -> readFully(process.getErrorStream()));
-
-            writePromptToStdin(process, request.prompt());
+        // Not a try-with-resources. ExecutorService.close() is shutdown() followed by
+        // awaitTermination(1, DAYS), and a reader parked in a native InputStream.read() cannot
+        // be interrupted out of it. Closing the executor on the way out of this method would
+        // therefore make the return itself block, potentially long past the timeout we just
+        // reported -- the exact hang this class exists to avoid. shutdownNow() does not wait.
+        ExecutorService io = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            Future<String> stdout = io.submit(() -> readFully(process.getInputStream()));
+            Future<String> stderr = io.submit(() -> readFully(process.getErrorStream()));
+            // On its own thread as well. A prompt larger than the pipe buffer, handed to a child
+            // that is alive but not reading, would otherwise block the calling thread with no
+            // timeout at all. Debate prompts carrying a transcript pass that size easily.
+            Future<Void> stdin = io.submit(() -> writePromptToStdin(process, request.prompt()));
 
             boolean exited = process.waitFor(request.timeout().toMillis(), TimeUnit.MILLISECONDS);
             if (!exited) {
                 log.warn("Claude CLI exceeded {}s, destroying pid={} and descendants",
                         request.timeout().toSeconds(), pid.map(String::valueOf).orElse("?"));
                 killTree(process);
-                return new CliResult.Timeout(elapsedMillis(start), pid);
+                return parser.parse(ProcessOutcome.timedOut(elapsedMillis(start), pid, processStart));
             }
 
-            ProcessOutcome outcome = new ProcessOutcome(
-                    process.exitValue(),
-                    awaitDrain(stdout),
-                    awaitDrain(stderr),
-                    false,
-                    elapsedMillis(start),
-                    pid);
+            Drained out = awaitDrain(stdout, "stdout");
+            Drained err = awaitDrain(stderr, "stderr");
+            reportStdinOutcome(stdin);
 
-            CliResult result = parser.parse(outcome);
-            logOutcome(result, procStart);
+            CliResult result = parser.parse(ProcessOutcome.exited(
+                    process.exitValue(), out.text(), err.text(), out.complete(), err.complete(),
+                    elapsedMillis(start), pid, processStart));
+            logOutcome(result, processStart);
             return result;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             killTree(process);
-            return new CliResult.Unparseable(-1, "", "", "interrupted while awaiting CLI",
-                    elapsedMillis(start));
+            return parser.parse(ProcessOutcome.interrupted(elapsedMillis(start), pid));
+        } finally {
+            io.shutdownNow();
         }
     }
 
@@ -126,10 +134,10 @@ public class ClaudeCliClient {
         cmd.add("--output-format");
         cmd.add("json");
 
-        // Injection defence and cost control in one move. The debate loop feeds the output of
-        // one model to another model running inside an agentic CLI, so tools are off.
-        // Measured side effect: cold-start cache-creation tokens drop by roughly an order of
-        // magnitude, because no project config, skills, plugins or MCP servers are loaded.
+        // Injection defence and cost control in one move. The debate loop feeds the output of one
+        // model to another model running inside an agentic CLI, so tools are off. Measured side
+        // effect: cold-start cache-creation tokens drop by roughly an order of magnitude, because
+        // no project configuration, skills, plugins or MCP servers are loaded.
         cmd.add("--safe-mode");
         cmd.add("--strict-mcp-config");
         cmd.add("--tools");
@@ -157,9 +165,8 @@ public class ClaudeCliClient {
             cmd.add("--effort");
             cmd.add(e);
         });
-        // Inline only. The CLI rejects a path with "--json-schema is not valid JSON", so the
-        // schema has to travel through argv, where Windows would otherwise eat every quote and
-        // split the value on its first space. See WindowsArgv for the measured behaviour.
+        // Inline only -- the CLI rejects a file path for --json-schema. Pre-escaped for Windows
+        // argv; see WindowsArgv.
         request.jsonSchema().ifPresent(s -> {
             cmd.add("--json-schema");
             cmd.add(WindowsArgv.encode(s));
@@ -172,14 +179,42 @@ public class ClaudeCliClient {
                 new IllegalArgumentException("sessionMode=" + request.sessionMode() + " requires a sessionId"));
     }
 
-    private void writePromptToStdin(Process process, String prompt) {
+    /**
+     * Writes the prompt and closes stdin so the child sees end of input.
+     *
+     * <p>A broken pipe from a child that has already exited is expected and uninteresting: the
+     * exit code and stderr explain what happened. A write failing while the child is still
+     * <em>alive</em> is a different matter -- stdin gets closed regardless by the
+     * try-with-resources, so the child receives a truncated prompt followed by an unexpected end
+     * of input, and may well answer a mangled question with a perfectly well-formed envelope.
+     * That deserves a warning rather than a debug line nobody sees.
+     */
+    private Void writePromptToStdin(Process process, String prompt) {
         try (OutputStream in = process.getOutputStream()) {
             in.write(prompt.getBytes(StandardCharsets.UTF_8));
             in.flush();
         } catch (IOException e) {
-            // A child that died before reading stdin yields a broken pipe. That is not the
-            // interesting failure, the exit code and stderr are, so record and continue.
-            log.debug("could not write prompt to CLI stdin: {}", e.getMessage());
+            if (process.isAlive()) {
+                log.warn("failed to write the prompt to a live CLI process ({}); "
+                        + "it may have received a truncated prompt", e.getMessage());
+            } else {
+                log.debug("CLI exited before reading its prompt: {}", e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    private void reportStdinOutcome(Future<Void> stdin) {
+        try {
+            stdin.get(DRAIN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("the prompt was still being written when the CLI exited; "
+                    + "it may have received only part of it");
+        } catch (ExecutionException e) {
+            log.warn("writing the prompt failed: {}",
+                    e.getCause() == null ? e.getMessage() : e.getCause().getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -189,19 +224,34 @@ public class ClaudeCliClient {
         }
     }
 
-    private String awaitDrain(Future<String> future) {
+    /**
+     * Captured stream content, and whether the capture actually finished.
+     *
+     * <p>The flag matters because an unfinished read yields an empty string, which is
+     * indistinguishable from a process that wrote nothing. Reporting the difference is what stops
+     * a possibly-completed turn being classified as one that never started.
+     */
+    private record Drained(String text, boolean complete) {
+    }
+
+    private Drained awaitDrain(Future<String> future, String streamName) {
         try {
-            return future.get(DRAIN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+            return new Drained(future.get(DRAIN_GRACE.toMillis(), TimeUnit.MILLISECONDS), true);
         } catch (TimeoutException e) {
+            // Cancelling sends an interrupt, which a thread parked in a native read ignores. The
+            // task is abandoned rather than stopped; it ends when the pipe closes.
             future.cancel(true);
-            return "";
+            log.error("{} could not be read within {}s of the CLI exiting; the outcome of this "
+                            + "turn is unknown and it must not be retried blindly",
+                    streamName, DRAIN_GRACE.toSeconds());
+            return new Drained("", false);
         } catch (ExecutionException e) {
-            log.debug("stream drain failed: {}",
+            log.warn("reading {} failed: {}", streamName,
                     e.getCause() == null ? e.getMessage() : e.getCause().getMessage());
-            return "";
+            return new Drained("", false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return "";
+            return new Drained("", false);
         }
     }
 
@@ -220,20 +270,28 @@ public class ClaudeCliClient {
     }
 
     /**
-     * Deliberately never logs a prompt or a response body. Both carry private reasoning, and
-     * a log file is exactly the artefact that ends up pasted into a public issue tracker.
+     * Deliberately never logs a prompt or a response body. Both carry private reasoning, and a log
+     * file is exactly the artefact that ends up pasted into a public issue tracker.
      */
-    private void logOutcome(CliResult result, Optional<Instant> procStart) {
+    private void logOutcome(CliResult result, Optional<Instant> processStart) {
         switch (result) {
             case CliResult.Success s -> log.info(
                     "CLI ok model={} stop={} in={} out={} cacheCreate={} cacheRead={} cost={} wallMs={} started={}",
-                    s.resolvedModel(), s.stopReason(), s.usage().inputTokens(), s.usage().outputTokens(),
-                    s.usage().cacheCreationInputTokens(), s.usage().cacheReadInputTokens(),
-                    s.totalCostUsd(), s.wallMillis(), procStart.map(String::valueOf).orElse("?"));
+                    s.resolvedModel().orElse("unresolved"), s.stopReason(), s.usage().inputTokens(),
+                    s.usage().outputTokens(), s.usage().cacheCreationInputTokens(),
+                    s.usage().cacheReadInputTokens(), s.totalCostUsd(), s.wallMillis(),
+                    processStart.map(String::valueOf).orElse("?"));
+            case CliResult.Truncated t -> log.warn(
+                    "CLI hit the output ceiling model={} out={} wallMs={}; the reply is a fragment, "
+                            + "not a position", t.resolvedModel().orElse("unresolved"),
+                    t.usage().outputTokens(), t.wallMillis());
+            case CliResult.RateLimited r -> log.warn("CLI rate limited status={} wallMs={}",
+                    r.httpStatus().map(String::valueOf).orElse("-"), r.wallMillis());
             case CliResult.ApiError e -> log.warn("CLI api error status={} wallMs={}",
                     e.httpStatus().map(String::valueOf).orElse("-"), e.wallMillis());
             case CliResult.PreflightError e -> log.warn("CLI preflight error kind={} wallMs={}",
                     e.kind(), e.wallMillis());
+            case CliResult.SpawnFailed f -> log.error("CLI never started: {}", f.message());
             case CliResult.Timeout t -> log.warn("CLI timeout wallMs={}", t.wallMillis());
             case CliResult.Unparseable u -> log.error("CLI unparseable exit={} reason={}",
                     u.exitCode(), u.reason());
