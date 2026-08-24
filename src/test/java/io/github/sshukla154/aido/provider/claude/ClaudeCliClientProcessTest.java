@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,6 +49,10 @@ class ClaudeCliClientProcessTest {
 
     @Test
     @DisplayName("output larger than any pipe buffer completes instead of deadlocking")
+    // An independent backstop. Production code converts a deadlock into a clean Timeout, but a
+    // regression that blocks before ever reaching waitFor would otherwise hang the fork with no
+    // bound at all, and surefire has none configured.
+    @Timeout(120)
     void drainsBothStreamsConcurrently() {
         // The stub writes ~2 MB to stdout and ~2 MB to stderr. A client that reads one stream
         // to completion before starting the other blocks on the full buffer of the one it is
@@ -115,6 +120,66 @@ class ClaudeCliClientProcessTest {
         assertThat(((CliResult.Success) result).text())
                 .describedAs("schema must arrive byte-identical in the child argv")
                 .contains(schema);
+    }
+
+    @Test
+    @DisplayName("an API error envelope survives the real process boundary")
+    void classifiesApiErrorFromRealProcess() {
+        CliResult result = clientFor("apierror").run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.ApiError.class);
+        assertThat(((CliResult.ApiError) result).httpStatus()).contains(404);
+    }
+
+    @Test
+    @DisplayName("a schema-bearing reply arrives parsed, with stop_reason tool_use")
+    void parsesStructuredOutputFromRealProcess() {
+        CliResult result = clientFor("schema").run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.Success.class);
+        CliResult.Success s = (CliResult.Success) result;
+        assertThat(s.stopReason()).isEqualTo("tool_use");
+        assertThat(s.structuredOutput()).isPresent();
+        assertThat(s.structuredOutput().get()).containsEntry("verdict", "YES");
+    }
+
+    @Test
+    @DisplayName("a rejected schema is a pre-flight failure, not a parse failure")
+    void classifiesRejectedSchemaFromRealProcess() {
+        CliResult result = clientFor("preflight-bad-schema").run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.PreflightError.class);
+        assertThat(((CliResult.PreflightError) result).kind())
+                .isEqualTo(CliResult.PreflightError.Kind.INVALID_JSON_SCHEMA);
+    }
+
+    @Test
+    @DisplayName("garbage on stdout is reported, never coerced into a success")
+    void malformedJsonFromRealProcessIsUnparseable() {
+        CliResult result = clientFor("malformed-json").run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.Unparseable.class);
+    }
+
+    @Test
+    @DisplayName("silence on both streams is unparseable, not a silent pre-flight error")
+    void emptyOutputFromRealProcessIsUnparseable() {
+        CliResult result = clientFor("empty").run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.Unparseable.class);
+    }
+
+    @Test
+    @DisplayName("a command that cannot be started is a spawn failure, not an odd response")
+    void reportsSpawnFailure() {
+        // Nothing was sent and nothing was charged, so this is safe to retry -- the opposite
+        // conclusion from an unparseable response, which may correspond to a completed turn.
+        ClaudeCliClient broken = new ClaudeCliClient(
+                List.of(workingDir.resolve("no-such-executable").toString()), workingDir, parser);
+
+        CliResult result = broken.run(request("x", Duration.ofSeconds(60)));
+
+        assertThat(result).isInstanceOf(CliResult.SpawnFailed.class);
     }
 
     @Test

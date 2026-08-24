@@ -137,16 +137,21 @@ class SqliteDialectSpikeTest {
         // The regression this guards: with unpadded milliseconds ".9Z" sorts after ".10Z", so
         // every ORDER BY over the column is quietly wrong and nothing throws. These two values
         // are chosen so a variable-width format would return them in the wrong order.
-        repository.deleteAll();
-        repository.saveAndFlush(new SpikeRecord(UUID.randomUUID().toString(), "later", nextSeq(),
-                SpikeRecord.Kind.ALPHA, false, Instant.parse("2026-08-24T11:16:43.100Z")));
-        repository.saveAndFlush(new SpikeRecord(UUID.randomUUID().toString(), "earlier", nextSeq(),
-                SpikeRecord.Kind.ALPHA, false, Instant.parse("2026-08-24T11:16:43.090Z")));
+        // Scoped to the two rows this test creates. Asserting on the whole table would make the
+        // result depend on which other tests had run first, and would have needed a deleteAll
+        // that could remove another test's rows mid-flight.
+        String marker = "order-" + UUID.randomUUID();
+        repository.saveAndFlush(new SpikeRecord(UUID.randomUUID().toString(), marker + "-later",
+                nextSeq(), SpikeRecord.Kind.ALPHA, false, Instant.parse("2026-08-24T11:16:43.100Z")));
+        repository.saveAndFlush(new SpikeRecord(UUID.randomUUID().toString(), marker + "-earlier",
+                nextSeq(), SpikeRecord.Kind.ALPHA, false, Instant.parse("2026-08-24T11:16:43.090Z")));
 
         List<String> byTimestamp = repository.findAllByOrderByCreatedAtAsc().stream()
-                .map(SpikeRecord::getLabel).toList();
+                .map(SpikeRecord::getLabel)
+                .filter(l -> l.startsWith(marker))
+                .toList();
 
-        assertThat(byTimestamp).containsExactly("earlier", "later");
+        assertThat(byTimestamp).containsExactly(marker + "-earlier", marker + "-later");
     }
 
     @Test
