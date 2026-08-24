@@ -63,6 +63,27 @@ class PromptTemplateTest {
     }
 
     @Test
+    @DisplayName("the strip pattern consumes the newline after the comment, not just spaces")
+    void stripPatternHandlesNewlines() {
+        // Guards a Java escape trap rather than a regex mistake. In a string literal "\s" is
+        // the escape for a single space, so writing it singly compiles cleanly and silently stops
+        // matching newlines and tabs. This shipped once: the loaded templates still looked correct
+        // because the trailing strip() masked it, and only removing that would have exposed it.
+        // Asserting on stripHeader directly is what makes the check bite.
+        String stripped = PromptTemplate.stripHeader("<!-- header -->\n\n\tbody");
+
+        assertThat(stripped).isEqualTo("body");
+    }
+
+    @Test
+    @DisplayName("a comment appearing later in prose does not extend the match")
+    void onlyTheLeadingCommentIsRemoved() {
+        String stripped = PromptTemplate.stripHeader(
+                "<!-- header -->\nkeep this <!-- and this --> and this");
+
+        assertThat(stripped).isEqualTo("keep this <!-- and this --> and this");
+    }
+    @Test
     @DisplayName("a rendered prompt contains the values and no leftover placeholder")
     void rendersEveryPlaceholder() {
         PromptTemplate template = PromptTemplate.load(ARCHITECT_POSITION);
