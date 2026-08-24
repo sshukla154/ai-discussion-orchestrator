@@ -21,6 +21,13 @@ self="scripts/redaction-check.sh"
 # written literally without the checker matching its own source.
 mapfile -t tracked < <(git ls-files | grep -v -x -F "$self")
 
+# A guard that passes when it scanned nothing is worse than no guard. Without this, a broken
+# git invocation makes every check below match nothing and the script exits 0.
+if [ "${#tracked[@]}" -eq 0 ]; then
+  echo 'Redaction check found no tracked files to scan. Refusing to report success.' >&2
+  exit 1
+fi
+
 report() {
   printf '\n[FAIL] %s\n' "$1"
   shift

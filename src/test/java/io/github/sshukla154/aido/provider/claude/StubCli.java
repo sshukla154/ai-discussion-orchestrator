@@ -81,11 +81,11 @@ public final class StubCli {
             }
             case "echo-args" -> {
                 // Round-trips the received argv so quoting can be asserted exactly.
-                out.print(successEnvelope(jsonEscape(String.join("", rest)), null));
+                out.print(successEnvelope(String.join("", rest), null));
                 System.exit(0);
             }
             case "echo-stdin" -> {
-                out.print(successEnvelope(jsonEscape(readStdin()), null));
+                out.print(successEnvelope(readStdin(), null));
                 System.exit(0);
             }
             default -> {
@@ -101,12 +101,17 @@ public final class StubCli {
         }
     }
 
+    /**
+     * @param result           assistant text, escaped here so no caller can emit a broken
+     *                         envelope by forgetting to
+     * @param structuredOutput raw JSON, inserted verbatim, or null to omit the field
+     */
     private static String successEnvelope(String result, String structuredOutput) {
         String structured = structuredOutput == null ? "" : ",\"structured_output\":" + structuredOutput;
         String stopReason = structuredOutput == null ? "end_turn" : "tool_use";
         return "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,"
                 + "\"terminal_reason\":\"completed\","
-                + "\"result\":\"" + result + "\","
+                + "\"result\":\"" + jsonEscape(result) + "\","
                 + "\"session_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\","
                 + "\"stop_reason\":\"" + stopReason + "\","
                 + "\"total_cost_usd\":0.0244,"
@@ -123,12 +128,10 @@ public final class StubCli {
     }
 
     /**
-     * Escapes every control character, not just the familiar ones.
-     *
-     * <p>An earlier version handled only tab, CR, LF and the two structural characters. A stray
-     * 0x1F then reached the output unescaped, and the client correctly reported the envelope as
-     * unparseable. The failure was in this stub rather than the code under test, which is a
-     * good reason for a test double to generate strictly valid output.
+     * Escapes every control character below 0x20, not only the JSON-significant ones. A single
+     * unescaped one anywhere in the string makes the whole envelope invalid, so a test double
+     * that emits almost-valid JSON produces failures in the code under test rather than in
+     * itself.
      */
     private static String jsonEscape(String s) {
         StringBuilder b = new StringBuilder(s.length() + 16);

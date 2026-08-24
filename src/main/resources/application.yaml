@@ -5,12 +5,9 @@ spring:
     web-application-type: none
 
   datasource:
-    # Outside the repository, and deliberately not under any synced or network location:
-    # SQLite's write-ahead log needs real shared memory and misbehaves on a network
-    # filesystem, quite apart from the problem of syncing debate transcripts to the cloud.
-    #
-    # Pragmas live in the URL so they apply from the first connection. journal_mode is
-    # persistent once set, so this is a one-time switch rather than a per-connection ritual.
+    # Off the repository and off any synced or network drive -- see docs/data-handling.md.
+    # Pragmas live in the URL so they apply from the first connection; journal_mode persists
+    # once set, so it is a one-time switch rather than a per-connection ritual.
     url: jdbc:sqlite:${user.home}/.ai-discussion-orchestrator/aido.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&synchronous=NORMAL
     driver-class-name: org.sqlite.JDBC
     hikari:

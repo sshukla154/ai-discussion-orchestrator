@@ -14,7 +14,7 @@ several of the surprises there are load-bearing.
 | Java | 25 (only `<java.version>` is set; the Boot parent derives `maven.compiler.release`) |
 | Spring Boot | 4.1.1 — **not** a web application yet |
 | Jackson | **3.x**, so imports are `tools.jackson.*`, not `com.fasterxml.jackson.*` (annotations are still `com.fasterxml.jackson.annotation`) |
-| Tests | JUnit Jupiter 6, AssertJ, Mockito 5 |
+| Tests | JUnit Jupiter 6, AssertJ. No mocking of the CLI boundary — a real stub process is spawned instead, see `StubCli` |
 | Build | Maven 3.9+ |
 | Planned | SQLite + Flyway + Spring Data JPA (phase 2), Vite/React (phase 5) |
 

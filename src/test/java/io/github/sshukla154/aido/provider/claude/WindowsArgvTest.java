@@ -31,7 +31,8 @@ class WindowsArgvTest {
         // Input:  \"   -> one backslash then a quote
         // Output: \\\" -> two backslashes (one literal backslash) then an escaped quote
         assertThat(WindowsArgv.escapeForWindowsChild("\\\"")).isEqualTo("\\\\\\\"");
-        // Two backslashes before a quote become four.
+        // Two backslashes before a quote are doubled to four, then the escaped quote
+        // contributes a fifth.
         assertThat(WindowsArgv.escapeForWindowsChild("\\\\\"")).isEqualTo("\\\\\\\\\\\"");
     }
 

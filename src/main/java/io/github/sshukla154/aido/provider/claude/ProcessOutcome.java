@@ -1,21 +1,63 @@
 package io.github.sshukla154.aido.provider.claude;
 
+import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Raw result of running the child: exactly what the OS gave back, before interpretation.
- * Kept separate from {@link CliResult} so the parser is a pure function over these four
- * values and can be unit-tested without spawning anything.
+ * Raw result of running the child: what the OS gave back, before interpretation.
+ *
+ * <p>Kept separate from {@link CliResult} so that classification is a pure function over this
+ * data and every interesting failure mode can be reproduced from a literal in a test, without
+ * spawning anything. Every path in {@link ClaudeCliClient} produces one of these -- including
+ * timeout and spawn failure -- so there is exactly one place where meaning is assigned.
+ *
+ * @param stdoutComplete whether the stdout drain finished. This is load-bearing: an incomplete
+ *                       drain also yields blank stdout, which is otherwise indistinguishable
+ *                       from a pre-flight failure. Classifying a possibly-completed turn as
+ *                       "the prompt never landed" would license a duplicate retry.
  */
 record ProcessOutcome(
+        Status status,
         int exitCode,
         String stdout,
         String stderr,
-        boolean timedOut,
+        boolean stdoutComplete,
+        boolean stderrComplete,
         long wallMillis,
-        Optional<Long> pid) {
+        Optional<Long> pid,
+        Optional<Instant> processStart,
+        String failureMessage) {
 
-    static ProcessOutcome timedOut(long wallMillis, Optional<Long> pid) {
-        return new ProcessOutcome(-1, "", "", true, wallMillis, pid);
+    enum Status {
+        /** The child ran to completion and its exit code is meaningful. */
+        EXITED,
+        /** The child outlived its timeout and was destroyed. */
+        TIMED_OUT,
+        /** The child was never started. */
+        SPAWN_FAILED,
+        /** The calling thread was interrupted while waiting. */
+        INTERRUPTED
+    }
+
+    static ProcessOutcome exited(int exitCode, String stdout, String stderr,
+                                 boolean stdoutComplete, boolean stderrComplete,
+                                 long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
+        return new ProcessOutcome(Status.EXITED, exitCode, stdout, stderr,
+                stdoutComplete, stderrComplete, wallMillis, pid, processStart, "");
+    }
+
+    static ProcessOutcome timedOut(long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
+        return new ProcessOutcome(Status.TIMED_OUT, -1, "", "", false, false,
+                wallMillis, pid, processStart, "");
+    }
+
+    static ProcessOutcome spawnFailed(String message, long wallMillis) {
+        return new ProcessOutcome(Status.SPAWN_FAILED, -1, "", "", false, false,
+                wallMillis, Optional.empty(), Optional.empty(), message);
+    }
+
+    static ProcessOutcome interrupted(long wallMillis, Optional<Long> pid) {
+        return new ProcessOutcome(Status.INTERRUPTED, -1, "", "", false, false,
+                wallMillis, pid, Optional.empty(), "interrupted while awaiting the CLI");
     }
 }

@@ -15,24 +15,54 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Turns a {@link ProcessOutcome} into a {@link CliResult}.
  *
- * <p>A pure function with no I/O, because every interesting failure mode of the CLI is
- * reachable here from a recorded fixture. The order of the checks below is load-bearing
- * and must not be rearranged.
+ * <p>A pure function with no I/O, because every interesting failure mode of the CLI is reachable
+ * here from a recorded literal. The order of the checks below is load-bearing and must not be
+ * rearranged.
  */
 @Component
 public class CliResultParser {
 
     private static final int EXCERPT_LIMIT = 4_000;
 
+    /** The CLI reports this when a reply hit the output-token ceiling mid-answer. */
+    private static final String STOP_REASON_TRUNCATED = "max_tokens";
+
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
+
     private final ObjectMapper mapper = JsonMapper.builder().build();
 
     public CliResult parse(ProcessOutcome outcome) {
-        if (outcome.timedOut()) {
-            return new CliResult.Timeout(outcome.wallMillis(), outcome.pid());
+        switch (outcome.status()) {
+            case SPAWN_FAILED -> {
+                return new CliResult.SpawnFailed(outcome.failureMessage(), outcome.wallMillis());
+            }
+            case TIMED_OUT -> {
+                return new CliResult.Timeout(
+                        outcome.wallMillis(), outcome.pid(), outcome.processStart());
+            }
+            case INTERRUPTED -> {
+                return new CliResult.Unparseable(outcome.exitCode(), "", "",
+                        outcome.failureMessage(), outcome.wallMillis());
+            }
+            case EXITED -> {
+                // fall through to the classification below
+            }
         }
 
-        // Pre-flight validation failures emit no JSON whatsoever, so this check must come
-        // before any attempt to parse stdout.
+        // A truncated drain also produces blank stdout, which would otherwise be read as a
+        // pre-flight failure -- the one classification that means "the prompt never landed, a
+        // retry is safe". Getting that wrong on a turn that may have completed is how a debate
+        // acquires a duplicate turn, so an incomplete capture is never classified.
+        if (!outcome.stdoutComplete()) {
+            return new CliResult.Unparseable(outcome.exitCode(), excerpt(outcome.stdout()),
+                    excerpt(outcome.stderr()),
+                    "stdout could not be captured completely, so the outcome is unknown; "
+                            + "the turn may have completed",
+                    outcome.wallMillis());
+        }
+
+        // Pre-flight validation failures emit no JSON whatsoever, so this must come before any
+        // attempt to parse stdout.
         boolean stdoutBlank = outcome.stdout() == null || outcome.stdout().isBlank();
         boolean stderrPresent = outcome.stderr() != null && !outcome.stderr().isBlank();
         if (stdoutBlank && stderrPresent) {
@@ -42,7 +72,8 @@ public class CliResultParser {
 
         if (stdoutBlank) {
             return new CliResult.Unparseable(outcome.exitCode(), "", excerpt(outcome.stderr()),
-                    "exit=" + outcome.exitCode() + " with empty stdout and empty stderr", outcome.wallMillis());
+                    "exit=" + outcome.exitCode() + " with empty stdout and empty stderr",
+                    outcome.wallMillis());
         }
 
         JsonNode root;
@@ -58,15 +89,21 @@ public class CliResultParser {
                     excerpt(outcome.stderr()), "stdout JSON is not an object", outcome.wallMillis());
         }
 
-        // Never branch on "subtype": the CLI reports subtype="success" alongside
-        // is_error=true, so it is not a success signal.
+        // Never branch on "subtype": the CLI reports subtype="success" alongside is_error=true,
+        // so it is not a success signal.
         if (root.path("is_error").asBoolean(false)) {
-            JsonNode status = root.get("api_error_status");
-            return new CliResult.ApiError(
+            return classifyError(root, outcome);
+        }
+
+        String stopReason = root.path("stop_reason").asString("");
+        CliResult.Usage usage = readUsage(root.path("usage"));
+
+        if (STOP_REASON_TRUNCATED.equals(stopReason)) {
+            return new CliResult.Truncated(
                     root.path("result").asString(""),
-                    status == null || status.isNull() ? Optional.empty() : Optional.of(status.asInt()),
                     root.path("session_id").asString(""),
-                    outcome.stderr() == null ? "" : outcome.stderr().strip(),
+                    resolvePrimaryModel(root),
+                    usage,
                     outcome.wallMillis());
         }
 
@@ -75,40 +112,68 @@ public class CliResultParser {
                 readStructuredOutput(root),
                 root.path("session_id").asString(""),
                 resolvePrimaryModel(root),
-                root.path("stop_reason").asString(""),
-                readUsage(root.path("usage")),
+                stopReason,
+                usage,
                 root.path("total_cost_usd").asDouble(0d),
                 outcome.wallMillis());
     }
 
+    private CliResult classifyError(JsonNode root, ProcessOutcome outcome) {
+        JsonNode statusNode = root.get("api_error_status");
+        Optional<Integer> status = statusNode == null || statusNode.isNull()
+                ? Optional.empty()
+                : Optional.of(statusNode.asInt());
+        String message = root.path("result").asString("");
+        String sessionId = root.path("session_id").asString("");
+
+        if (status.filter(s -> s == HTTP_TOO_MANY_REQUESTS).isPresent()) {
+            return new CliResult.RateLimited(message, status, sessionId, outcome.wallMillis());
+        }
+        return new CliResult.ApiError(message, status, sessionId,
+                outcome.stderr() == null ? "" : outcome.stderr().strip(), outcome.wallMillis());
+    }
+
     /**
-     * Picks the model that actually served the turn.
+     * Identifies the model that served the turn, or reports that it could not be determined.
      *
-     * <p>{@code modelUsage} is not single-entry: a lightweight auxiliary model appears
-     * alongside the real one for side work such as session-title generation. The primary
-     * is the entry whose output-token count matches the top-level {@code usage} block;
-     * failing that, the largest producer wins.
+     * <p>{@code modelUsage} is not single-entry: a lightweight auxiliary model appears alongside
+     * the real one for side work such as session-title generation, and there is no top-level
+     * {@code model} field. The primary is the entry whose output-token count matches the
+     * top-level {@code usage} block.
+     *
+     * <p>When nothing matches, this returns empty rather than guessing. An earlier version fell
+     * back to "largest producer wins", which is biased exactly the wrong way for this project:
+     * a schema-constrained reply is a handful of tokens, so an ordinary auxiliary call can easily
+     * emit more. Since this value is provenance -- which model said this -- a wrong answer
+     * dressed as a right one is worse than an absent one.
      */
-    private String resolvePrimaryModel(JsonNode root) {
+    private Optional<String> resolvePrimaryModel(JsonNode root) {
         JsonNode modelUsage = root.path("modelUsage");
         if (!modelUsage.isObject() || modelUsage.isEmpty()) {
-            return "";
+            return Optional.empty();
         }
-        long topOutput = root.path("usage").path("output_tokens").asLong(-1L);
+        if (modelUsage.size() == 1) {
+            return Optional.of(modelUsage.propertyNames().iterator().next());
+        }
 
-        String best = "";
-        long bestOutput = Long.MIN_VALUE;
+        JsonNode topOutput = root.path("usage").get("output_tokens");
+        if (topOutput == null || topOutput.isNull()) {
+            return Optional.empty();
+        }
+        long target = topOutput.asLong();
+
+        String match = null;
         for (Map.Entry<String, JsonNode> e : modelUsage.properties()) {
-            long out = e.getValue().path("outputTokens").asLong(0L);
-            if (topOutput >= 0 && out == topOutput) {
-                return e.getKey();
-            }
-            if (out > bestOutput) {
-                bestOutput = out;
-                best = e.getKey();
+            if (e.getValue().path("outputTokens").asLong(Long.MIN_VALUE) == target) {
+                if (match != null) {
+                    // Two models reporting the same output count. Picking either would be a
+                    // coin toss dressed as a determination.
+                    return Optional.empty();
+                }
+                match = e.getKey();
             }
         }
-        return best;
+        return Optional.ofNullable(match);
     }
 
     /** Present only when {@code --json-schema} was supplied; already validated by the CLI. */
@@ -135,10 +200,9 @@ public class CliResultParser {
     /**
      * Best-effort classification of a pre-flight failure.
      *
-     * <p>This is string matching on human-readable stderr, which is brittle by nature — so
-     * the raw text is always retained on the result and {@code OTHER} is a first-class
-     * outcome rather than a parse failure. The enum is a convenience for the state machine;
-     * the stderr text is the record of truth.
+     * <p>String matching on human-readable stderr is brittle by nature, so the raw text is always
+     * retained on the result and {@code OTHER} is a first-class outcome rather than a parse
+     * failure. The enum is a convenience for the state machine; the stderr text is the record.
      */
     private CliResult.PreflightError.Kind classifyPreflight(String stderr) {
         String s = stderr.toLowerCase(Locale.ROOT);
