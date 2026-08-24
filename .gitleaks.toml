@@ -13,3 +13,12 @@ paths = [
   # aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee, which can trip generic entropy rules.
   '''src/test/resources/fixtures/.*''',
 ]
+
+# The project has exactly one credential, and this is its shape. Declared explicitly
+# rather than trusting a built-in rule to cover it: the no-credentials-online rule rests
+# on catching a paste before it becomes a commit.
+[[rules]]
+id = "groq-api-key"
+description = "Groq API key"
+regex = '''gsk_[A-Za-z0-9]{20,}'''
+keywords = ["gsk_"]
