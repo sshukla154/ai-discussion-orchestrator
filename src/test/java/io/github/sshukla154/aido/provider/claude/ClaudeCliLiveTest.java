@@ -46,7 +46,7 @@ class ClaudeCliLiveTest {
 
         CliResult created = client.run(CliRequest
                 .stateless("Remember this word and reply only OK: ZANZIBAR", timeout)
-                .creating(sessionId));
+                .creating(sessionId)).result();
 
         assertThat(created).isInstanceOf(CliResult.Success.class);
         assertThat(((CliResult.Success) created).sessionId()).isEqualTo(sessionId);
@@ -55,7 +55,7 @@ class ClaudeCliLiveTest {
         // outlives the invocation that created it.
         CliResult resumed = client.run(CliRequest
                 .stateless("What was the word? Reply with only that word.", timeout)
-                .resuming(sessionId));
+                .resuming(sessionId)).result();
 
         assertThat(resumed).isInstanceOf(CliResult.Success.class);
         assertThat(((CliResult.Success) resumed).text()).containsIgnoringCase("ZANZIBAR");
@@ -68,10 +68,10 @@ class ClaudeCliLiveTest {
         String sessionId = UUID.randomUUID().toString();
         Duration timeout = Duration.ofSeconds(180);
 
-        assertThat(client.run(CliRequest.stateless("Reply only OK", timeout).creating(sessionId)))
+        assertThat(client.run(CliRequest.stateless("Reply only OK", timeout).creating(sessionId)).result())
                 .isInstanceOf(CliResult.Success.class);
 
-        CliResult second = client.run(CliRequest.stateless("Reply only OK", timeout).creating(sessionId));
+        CliResult second = client.run(CliRequest.stateless("Reply only OK", timeout).creating(sessionId)).result();
 
         assertThat(second).isInstanceOf(CliResult.PreflightError.class);
         assertThat(((CliResult.PreflightError) second).kind())
@@ -88,7 +88,7 @@ class ClaudeCliLiveTest {
         // Asking for prose while constraining the shape: the schema has to win.
         CliResult result = client().run(CliRequest
                 .stateless("Write a long essay about the ocean.", Duration.ofSeconds(180))
-                .withSchema(schema));
+                .withSchema(schema)).result();
 
         assertThat(result).isInstanceOf(CliResult.Success.class);
         CliResult.Success s = (CliResult.Success) result;
@@ -105,7 +105,7 @@ class ClaudeCliLiveTest {
     void unknownSessionIsPreflight() {
         CliResult result = client().run(CliRequest
                 .stateless("hello", Duration.ofSeconds(120))
-                .resuming(UUID.randomUUID().toString()));
+                .resuming(UUID.randomUUID().toString())).result();
 
         assertThat(result).isInstanceOf(CliResult.PreflightError.class);
         assertThat(((CliResult.PreflightError) result).kind())

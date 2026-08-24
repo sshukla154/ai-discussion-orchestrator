@@ -66,10 +66,14 @@ public final class ClaudeCliClient {
         this.parser = parser;
     }
 
-    public CliResult run(CliRequest request) {
+    public CliInvocation run(CliRequest request) {
         long start = System.nanoTime();
 
-        ProcessBuilder pb = new ProcessBuilder(buildCommand(request))
+        List<String> command = buildCommand(request);
+        // The executable path is machine-identifying, so provenance records only the tail.
+        List<String> argsOnly = command.subList(launchPrefix.size(), command.size());
+
+        ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(workingDirectory.toFile())
                 // Explicit despite matching the default -- see class javadoc item 1.
                 .redirectErrorStream(false);
@@ -79,8 +83,8 @@ public final class ClaudeCliClient {
             process = pb.start();
         } catch (IOException e) {
             log.error("could not start the Claude CLI: {}", e.getMessage());
-            return parser.parse(ProcessOutcome.spawnFailed(
-                    "failed to spawn CLI: " + e.getMessage(), elapsedMillis(start)));
+            return classify(ProcessOutcome.spawnFailed(
+                    "failed to spawn CLI: " + e.getMessage(), elapsedMillis(start)), argsOnly);
         }
 
         Optional<Long> pid = safePid(process);
@@ -107,25 +111,30 @@ public final class ClaudeCliClient {
                 log.warn("Claude CLI exceeded {}s, destroying pid={} and descendants",
                         request.timeout().toSeconds(), pid.map(String::valueOf).orElse("?"));
                 killTree(process);
-                return parser.parse(ProcessOutcome.timedOut(elapsedMillis(start), pid, processStart));
+                return classify(
+                        ProcessOutcome.timedOut(elapsedMillis(start), pid, processStart), argsOnly);
             }
 
             Drained out = awaitDrain(stdout, "stdout");
             Drained err = awaitDrain(stderr, "stderr");
             boolean promptDelivered = awaitPromptDelivery(stdin);
 
-            CliResult result = parser.parse(ProcessOutcome.exited(
+            CliInvocation invocation = classify(ProcessOutcome.exited(
                     process.exitValue(), out.text(), err.text(), out.complete(), err.complete(),
-                    promptDelivered, elapsedMillis(start), pid, processStart));
-            logOutcome(result, processStart);
-            return result;
+                    promptDelivered, elapsedMillis(start), pid, processStart), argsOnly);
+            logOutcome(invocation.result(), processStart);
+            return invocation;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             killTree(process);
-            return parser.parse(ProcessOutcome.interrupted(elapsedMillis(start), pid));
+            return classify(ProcessOutcome.interrupted(elapsedMillis(start), pid), argsOnly);
         } finally {
             io.shutdownNow();
         }
+    }
+
+    private CliInvocation classify(ProcessOutcome outcome, List<String> args) {
+        return new CliInvocation(parser.parse(outcome), outcome, args);
     }
 
     List<String> buildCommand(CliRequest request) {

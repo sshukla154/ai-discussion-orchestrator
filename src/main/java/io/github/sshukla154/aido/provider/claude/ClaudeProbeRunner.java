@@ -65,7 +65,7 @@ public final class ClaudeProbeRunner implements ApplicationRunner {
                 .stateless("Is the sky blue? Answer in the schema.", Duration.ofSeconds(120))
                 .withSchema(PROBE_SCHEMA);
 
-        report(client.run(request));
+        report(client.run(request).result());
     }
 
     private void report(CliResult result) {
