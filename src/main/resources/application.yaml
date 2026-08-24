@@ -4,6 +4,19 @@ spring:
   main:
     web-application-type: none
 
+aido:
+  discussion:
+    # Recorded with every turn, so a saved discussion says what produced it. Opus for decisions
+    # worth the cost; sonnet is roughly a quarter of it for the same shape of answer.
+    model: sonnet
+    effort: high
+
+  provenance:
+    # Outside the repository, deliberately. Run records hold the exact prompts and responses of a
+    # debate, and this repository is public. A placeholder rather than a literal path so no
+    # machine-identifying string enters a tracked file.
+    run-root: ${user.home}/.ai-discussion-orchestrator/runs
+
 logging:
   level:
     # Prompts and responses carry private reasoning and are never logged above DEBUG.

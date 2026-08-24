@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
  * <p>Run with: {@code mvn -q compile spring-boot:run -Dspring-boot.run.arguments=--probe}
  */
 @Component
+@Order(200)
 public final class ClaudeProbeRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeProbeRunner.class);
@@ -46,7 +48,7 @@ public final class ClaudeProbeRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) throws IOException {
         if (!args.containsOption("probe")) {
-            log.info("Nothing to do. Pass --probe to smoke-test the Claude CLI integration.");
+            // Quiet unless asked. The discussion commands own the no-argument case.
             return;
         }
 
@@ -65,7 +67,7 @@ public final class ClaudeProbeRunner implements ApplicationRunner {
                 .stateless("Is the sky blue? Answer in the schema.", Duration.ofSeconds(120))
                 .withSchema(PROBE_SCHEMA);
 
-        report(client.run(request));
+        report(client.run(request).result());
     }
 
     private void report(CliResult result) {

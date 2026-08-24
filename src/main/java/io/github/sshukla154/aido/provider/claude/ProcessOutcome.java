@@ -22,7 +22,7 @@ import java.util.Optional;
  *                         means the model may have answered a truncated question with a
  *                         perfectly well-formed envelope.
  */
-record ProcessOutcome(
+public record ProcessOutcome(
         Status status,
         int exitCode,
         String stdout,
@@ -35,7 +35,7 @@ record ProcessOutcome(
         Optional<Instant> processStart,
         String failureMessage) {
 
-    enum Status {
+    public enum Status {
         /** The child ran to completion and its exit code is meaningful. */
         EXITED,
         /** The child outlived its timeout and was destroyed. */
@@ -46,7 +46,7 @@ record ProcessOutcome(
         INTERRUPTED
     }
 
-    static ProcessOutcome exited(int exitCode, String stdout, String stderr,
+    public static ProcessOutcome exited(int exitCode, String stdout, String stderr,
                                  boolean stdoutComplete, boolean stderrComplete,
                                  boolean promptDelivered, long wallMillis,
                                  Optional<Long> pid, Optional<Instant> processStart) {
@@ -54,17 +54,17 @@ record ProcessOutcome(
                 stdoutComplete, stderrComplete, promptDelivered, wallMillis, pid, processStart, "");
     }
 
-    static ProcessOutcome timedOut(long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
+    public static ProcessOutcome timedOut(long wallMillis, Optional<Long> pid, Optional<Instant> processStart) {
         return new ProcessOutcome(Status.TIMED_OUT, -1, "", "", false, false, false,
                 wallMillis, pid, processStart, "");
     }
 
-    static ProcessOutcome spawnFailed(String message, long wallMillis) {
+    public static ProcessOutcome spawnFailed(String message, long wallMillis) {
         return new ProcessOutcome(Status.SPAWN_FAILED, -1, "", "", false, false, false,
                 wallMillis, Optional.empty(), Optional.empty(), message);
     }
 
-    static ProcessOutcome interrupted(long wallMillis, Optional<Long> pid) {
+    public static ProcessOutcome interrupted(long wallMillis, Optional<Long> pid) {
         return new ProcessOutcome(Status.INTERRUPTED, -1, "", "", false, false, false,
                 wallMillis, pid, Optional.empty(), "interrupted while awaiting the CLI");
     }
