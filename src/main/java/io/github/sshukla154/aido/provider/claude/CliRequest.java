@@ -49,6 +49,10 @@ public record CliRequest(
         return new CliRequest(prompt, Optional.of(m), effort, jsonSchema, sessionId, sessionMode, timeout);
     }
 
+    public CliRequest withEffort(String e) {
+        return new CliRequest(prompt, model, Optional.of(e), jsonSchema, sessionId, sessionMode, timeout);
+    }
+
     public CliRequest resuming(String id) {
         return new CliRequest(prompt, model, effort, jsonSchema, Optional.of(id), SessionMode.RESUME, timeout);
     }
