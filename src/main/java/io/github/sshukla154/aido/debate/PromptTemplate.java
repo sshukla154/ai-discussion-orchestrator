@@ -58,8 +58,12 @@ public final class PromptTemplate {
      *
      * <p>Non-greedy and dot-matches-newline, so only the comment goes and a later {@code -->}
      * appearing in prose cannot extend the match.
+     *
+     * <p>Note the doubled backslash. In a Java string literal {@code "\s"} is the escape for
+     * a single space, not the regex class, so writing it singly compiles cleanly and silently
+     * stops matching newlines and tabs. It shipped that way once.
      */
-    private static final Pattern HEADER_COMMENT = Pattern.compile("(?s)<!--.*?-->\s*");
+    private static final Pattern HEADER_COMMENT = Pattern.compile("(?s)<!--.*?-->\\s*");
 
     private final String id;
     private final String text;
@@ -82,10 +86,21 @@ public final class PromptTemplate {
                 throw new IllegalArgumentException("prompt template not on the classpath: " + resource);
             }
             String raw = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            return new PromptTemplate(name, HEADER_COMMENT.matcher(raw).replaceFirst("").strip());
+            return new PromptTemplate(name, stripHeader(raw));
         } catch (IOException e) {
             throw new UncheckedIOException("could not read prompt template " + resource, e);
         }
+    }
+
+    /**
+     * Removes the leading maintainer comment and any whitespace it leaves behind.
+     *
+     * <p>Package-private so a test can assert the pattern itself consumes a newline. Asserting
+     * only on a loaded template cannot: the trailing strip would mask a pattern that had quietly
+     * stopped matching anything but spaces.
+     */
+    static String stripHeader(String raw) {
+        return HEADER_COMMENT.matcher(raw).replaceFirst("").strip();
     }
 
     public String id() {
