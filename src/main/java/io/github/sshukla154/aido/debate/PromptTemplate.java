@@ -46,6 +46,21 @@ public final class PromptTemplate {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([a-zA-Z][a-zA-Z0-9]*)}}");
 
+    /**
+     * Header comments are stripped at load, before anything else happens.
+     *
+     * <p>Each template opens with an HTML comment naming the placeholders it expects. That is
+     * useful to a maintainer and must never reach a model -- and it cannot survive substitution,
+     * because the comment names its placeholders <em>using placeholder syntax</em>. Observed in a
+     * live run: rendering it injected the question, the constraints and the other side's entire
+     * argument into a comment block, and swallowed the fence that marks untrusted content as data
+     * rather than instructions.
+     *
+     * <p>Non-greedy and dot-matches-newline, so only the comment goes and a later {@code -->}
+     * appearing in prose cannot extend the match.
+     */
+    private static final Pattern HEADER_COMMENT = Pattern.compile("(?s)<!--.*?-->\s*");
+
     private final String id;
     private final String text;
 
@@ -66,7 +81,8 @@ public final class PromptTemplate {
             if (in == null) {
                 throw new IllegalArgumentException("prompt template not on the classpath: " + resource);
             }
-            return new PromptTemplate(name, new String(in.readAllBytes(), StandardCharsets.UTF_8));
+            String raw = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            return new PromptTemplate(name, HEADER_COMMENT.matcher(raw).replaceFirst("").strip());
         } catch (IOException e) {
             throw new UncheckedIOException("could not read prompt template " + resource, e);
         }
