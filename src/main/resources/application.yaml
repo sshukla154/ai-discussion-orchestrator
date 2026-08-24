@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: ai-discussion-orchestrator
+  main:
+    web-application-type: none
+
+  datasource:
+    # Outside the repository, and deliberately not under any synced or network location:
+    # SQLite's write-ahead log needs real shared memory and misbehaves on a network
+    # filesystem, quite apart from the problem of syncing debate transcripts to the cloud.
+    #
+    # Pragmas live in the URL so they apply from the first connection. journal_mode is
+    # persistent once set, so this is a one-time switch rather than a per-connection ritual.
+    url: jdbc:sqlite:${user.home}/.ai-discussion-orchestrator/aido.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&synchronous=NORMAL
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      # SQLite permits exactly one writer. A pool of one eliminates the whole SQLITE_BUSY
+      # class at no cost for a single-user application -- and with one connection, a leak is
+      # immediately fatal, so detection is worth having.
+      maximum-pool-size: 1
+      pool-name: sqlite-pool
+      leak-detection-threshold: 30000
+
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    # Never "update". SQLite's ALTER TABLE cannot apply most changes, and Hibernate declines
+    # them quietly rather than loudly, so the schema drifts until a query fails. "validate"
+    # turns that into a startup failure instead.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # The database is a single local file holding the only copy of the discussion history.
+    clean-disabled: true
+    # No migrations exist yet; the real schema arrives with the discussion engine.
+    fail-on-missing-locations: false
+
+logging:
+  level:
+    # Prompts and responses are private reasoning and are never logged above DEBUG.
+    io.github.sshukla154.aido: INFO
