@@ -1,5 +1,6 @@
 package io.github.sshukla154.aido.debate;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -65,7 +66,7 @@ public record DebateTurn(
      * picking one side of a contradiction is exactly the fabrication this design refuses.
      */
     public List<String> inconsistencies() {
-        List<String> problems = new java.util.ArrayList<>(3);
+        List<String> problems = new ArrayList<>(3);
         if (convergence == Convergence.FULL_AGREEMENT && !remainingDisagreements.isEmpty()) {
             problems.add("claims full agreement while listing " + remainingDisagreements.size()
                     + " remaining disagreement(s)");
