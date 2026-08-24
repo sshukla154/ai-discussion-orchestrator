@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default. Nothing here writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          # Matches the development JDK exactly. No version matrix: the application runs
+          # on one JDK on one machine, so a matrix would test configurations that never
+          # exist while doubling the feedback loop.
+          distribution: zulu
+          java-version: '25'
+          cache: maven
+
+      # Hermetic by construction. Every test that touches the real Claude CLI is tagged
+      # "live" and excluded here -- the CLI is not installed on a runner, and
+      # authenticating it would mean putting a credential in repository secrets, which
+      # this project does not do. See scripts/redaction-check.sh, which enforces that.
+      - name: Build and test
+        run: mvn -B --no-transfer-progress verify
+
+  redaction:
+    # Guards the leak class secret scanners do not cover: machine paths, personal
+    # identifiers, and data files that must never be tracked in a public repository.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check for machine-identifying or private content
+        run: |
+          chmod +x scripts/redaction-check.sh
+          ./scripts/redaction-check.sh

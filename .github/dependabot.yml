@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # All three ecosystems. Unpinned or stale action versions are a real supply-chain
+  # exposure, and are the one this repository would otherwise never notice.
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

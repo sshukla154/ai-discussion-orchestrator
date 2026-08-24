@@ -1,0 +1,40 @@
+# --- Claude Code local config: never tracked (see docs/security.md) ---
+.claude/
+
+# --- Runtime data: transcripts and DB live OUTSIDE the repo, but belt-and-braces ---
+*.db
+*.db-wal
+*.db-shm
+runs/
+data/
+.env
+.env.*
+!.env.example
+
+# --- Java / Maven ---
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+*.class
+*.jar
+*.war
+hs_err_pid*
+replay_pid*
+
+# --- Node / frontend (later phases) ---
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# --- OS ---
+Thumbs.db
+.DS_Store

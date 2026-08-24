@@ -1,0 +1,18 @@
+# The layer that actually prevents a leak. CI detects one only after the commit object
+# exists, at which point it is in the reflog and one push away from being permanent.
+#
+#   pipx install pre-commit && pre-commit install
+#
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: redaction-check
+        name: redaction check (machine paths, identifiers, data files)
+        entry: scripts/redaction-check.sh
+        language: script
+        pass_filenames: false

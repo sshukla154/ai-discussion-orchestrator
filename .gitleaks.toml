@@ -1,0 +1,15 @@
+# Extends the upstream rule set rather than replacing it: the default rules cover the
+# credential shapes that matter here, and re-deriving them by hand would only lose
+# coverage over time.
+title = "ai-discussion-orchestrator"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures and documentation that intentionally contain credential-shaped text"
+paths = [
+  # Test fixtures use obviously-fake session identifiers of the form
+  # aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee, which can trip generic entropy rules.
+  '''src/test/resources/fixtures/.*''',
+]
