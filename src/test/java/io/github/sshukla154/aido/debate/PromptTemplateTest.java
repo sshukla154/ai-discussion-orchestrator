@@ -44,6 +44,25 @@ class PromptTemplateTest {
     }
 
     @Test
+    @DisplayName("the maintainer header never reaches a model, and never gets substituted into")
+    void headerCommentIsStripped() {
+        // Found in a live run. The header names its placeholders using placeholder syntax, so
+        // rendering it injected the question, the constraints and the other side's whole argument
+        // into a comment block -- and swallowed the fence marking untrusted content as data.
+        for (String name : new String[]{ARCHITECT_POSITION, CHALLENGER_CHALLENGE, ARCHITECT_RESPONSE}) {
+            PromptTemplate template = PromptTemplate.load(name);
+
+            assertThat(template.source())
+                    .describedAs("template %s must carry no HTML comment once loaded", name)
+                    .doesNotContain("<!--")
+                    .doesNotContain("-->");
+            assertThat(template.render(valuesFor(template)))
+                    .describedAs("a rendered prompt for %s must carry no comment either", name)
+                    .doesNotContain("<!--");
+        }
+    }
+
+    @Test
     @DisplayName("a rendered prompt contains the values and no leftover placeholder")
     void rendersEveryPlaceholder() {
         PromptTemplate template = PromptTemplate.load(ARCHITECT_POSITION);
