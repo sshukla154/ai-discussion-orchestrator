@@ -7,17 +7,22 @@ Read [docs/provider-feasibility.md](docs/provider-feasibility.md) before changin
 `provider/claude` — it records measured CLI behaviour that is not guessable from the docs, and
 several of the surprises there are load-bearing.
 
+**Before adding a round, a convergence check, a database or a UI, read
+[docs/value-experiment.md](docs/value-experiment.md) and
+[docs/rejected-approaches.md](docs/rejected-approaches.md).** Each was dropped on measured
+evidence rather than left undone, and each rejection records the condition that would reverse
+it. One round is the whole design, not a configured limit.
+
 ## Stack
 
 | | |
 |---|---|
 | Java | 25 (only `<java.version>` is set; the Boot parent derives `maven.compiler.release`) |
-| Spring Boot | 4.1.1 — **not** a web application yet |
+| Spring Boot | 4.1.1 — **not** a web application, and not becoming one |
 | Jackson | **3.x**, so imports are `tools.jackson.*`, not `com.fasterxml.jackson.*` (annotations are still `com.fasterxml.jackson.annotation`) |
 | Tests | JUnit Jupiter 6, AssertJ. No mocking of the CLI boundary — a real stub process is spawned instead, see `StubCli` |
 | Build | Maven 3.9+ |
-| Persistence | **test scope only.** Phase one writes plain files; `ArchitectureTest` fails the build if main sources touch `jakarta.persistence`, `org.hibernate`, `org.springframework.data.jpa` or `org.flywaydb`. Moves to compile scope in phase 2 |
-| Planned | Vite/React (phase 5) |
+| Persistence | **test scope only, permanently.** Runs write plain files; `ArchitectureTest` fails the build if main sources touch `jakarta.persistence`, `org.hibernate`, `org.springframework.data.jpa` or `org.flywaydb`. The database that was to make it compile scope is dropped — do not promote it |
 
 ## Commands
 
