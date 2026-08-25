@@ -36,12 +36,23 @@ Run the architect's opening turn:
 mvn -B -q compile spring-boot:run -Dspring-boot.run.arguments="--start --question=question.md"
 ```
 
-It prints the run directory and the path of a challenger prompt. Paste that prompt into a separate
-chat, and save the JSON reply to a file. Then:
+It prints the run directory. What happens next depends on how the challenger answered.
+
+**If a challenger API key is configured**, the challenger already answered during the round, so
+finish it with nothing else:
+
+```bash
+mvn -B -q compile spring-boot:run -Dspring-boot.run.arguments="--answer --run=<run-dir>"
+```
+
+**Otherwise** it also prints the path of a challenger prompt. Paste that into a separate chat, save
+the JSON reply to a file, and pass it:
 
 ```bash
 mvn -B -q compile spring-boot:run -Dspring-boot.run.arguments="--answer --run=<run-dir> --reply=reply.json"
 ```
+
+A reply file always wins over a recorded turn, so it is also how you correct an answer the API gave.
 
 The result is a markdown document in the run directory: where the two sides landed, what was
 settled, what is still open with why it matters and what would settle it, and what you have to
