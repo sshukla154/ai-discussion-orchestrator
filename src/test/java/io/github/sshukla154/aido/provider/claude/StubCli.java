@@ -22,7 +22,7 @@ import java.util.Arrays;
  * are its contract with the parent. A logger would write somewhere else entirely and every test
  * that reads the child output would fail.
  */
-final class StubCli {
+public final class StubCli {
 
     private StubCli() {
     }
@@ -37,6 +37,14 @@ final class StubCli {
         switch (mode) {
             case "success" -> {
                 out.print(successEnvelope("PONG", null));
+                System.exit(0);
+            }
+            case "debate-turn" -> {
+                // A schema-complete debate turn, so a caller can exercise a whole round without
+                // spawning the real CLI or spending anything. Kept here rather than as a fixture
+                // file so the stub stays a single self-contained program.
+                out.print(successEnvelope("{}", """
+                        {"argument":"The framing is the problem, not the answer.",                        "positionSummary":"Split the bloc rather than choosing between two wrong options.",                        "claims":[{"stableKey":"premise-is-wrong",                        "claim":"The question assumes the four libraries move as one bloc.",                        "support":"Only one of them is referenced from main sources."}],                        "concessions":[],"remainingDisagreements":[],                        "openQuestions":["Is the converter referenced by anything today?"],                        "convergence":"DISAGREEMENT",                        "convergenceJustification":"The position rests on a framing I reject.",                        "positionChanged":false,"positionChangeSummary":"",                        "acceptOtherPosition":"NO","acceptanceConditions":"",                        "certainty":"Confident about the framing, less so about the cost.",                        "recommendation":"Check whether the converter is used before deciding.",                        "cannotAssess":false,"cannotAssessReason":""}"""));
                 System.exit(0);
             }
             case "schema" -> {

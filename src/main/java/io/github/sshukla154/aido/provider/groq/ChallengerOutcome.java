@@ -14,12 +14,21 @@ import java.util.Optional;
  */
 public sealed interface ChallengerOutcome {
 
-    /** A schema-valid reply. The map is the parsed structured output, ready for the turn parser. */
-    record Success(Map<String, Object> structuredOutput, TokenUsage usage, long wallMillis)
-            implements ChallengerOutcome {
+    /**
+     * A schema-valid reply.
+     *
+     * @param structuredOutput the parsed content, ready for the turn parser
+     * @param rawBody          the exact response body. Carried so the run record holds what was
+     *                         received rather than a re-serialisation of what was understood --
+     *                         the same rule the Claude side follows, and the only version that can
+     *                         answer "was the model wrong, or did we misread it?"
+     */
+    record Success(Map<String, Object> structuredOutput, String rawBody, TokenUsage usage,
+                   long wallMillis) implements ChallengerOutcome {
 
         public Success {
             structuredOutput = Map.copyOf(structuredOutput);
+            rawBody = rawBody == null ? "" : rawBody;
         }
     }
 

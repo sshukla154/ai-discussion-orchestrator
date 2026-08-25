@@ -16,6 +16,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import io.github.sshukla154.aido.provider.Challenger;
+
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -51,7 +53,7 @@ import tools.jackson.databind.node.ObjectNode;
  * environment at the moment the request is built and dropped immediately after.
  */
 @Component
-public final class GroqChallengerProvider {
+public final class GroqChallengerProvider implements Challenger {
 
     private static final Logger log = LoggerFactory.getLogger(GroqChallengerProvider.class);
 
@@ -61,7 +63,7 @@ public final class GroqChallengerProvider {
      * Open-weight, free on this tier, and contractually excluded from training on submitted
      * content -- which matters because a debate prompt carries the user's real architecture.
      */
-    private static final String MODEL = "openai/gpt-oss-120b";
+    public static final String MODEL = "openai/gpt-oss-120b";
 
     /**
      * Deliberately below what the per-minute allowance would permit outright.
@@ -109,6 +111,7 @@ public final class GroqChallengerProvider {
      *                   request parameter instead
      * @param jsonSchema the debate turn schema, sent in strict mode
      */
+    @Override
     public ChallengerOutcome challenge(String prompt, String jsonSchema) {
         return GroqApiKey.fromEnvironment()
                 .map(key -> send(prompt, jsonSchema, key, ENDPOINT))
@@ -254,7 +257,7 @@ public final class GroqChallengerProvider {
         log.info("challenger ok model={} in={} out={} remainingTokens={} wallMs={}",
                 root.path("model").asString(MODEL), usage.promptTokens(), usage.completionTokens(),
                 usage.remainingTokens().map(String::valueOf).orElse("unreported"), wallMillis);
-        return new ChallengerOutcome.Success(structured, usage, wallMillis);
+        return new ChallengerOutcome.Success(structured, body, usage, wallMillis);
     }
 
     /**

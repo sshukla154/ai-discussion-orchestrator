@@ -24,6 +24,7 @@ import io.github.sshukla154.aido.debate.DebateTurnParser;
 import io.github.sshukla154.aido.debate.PromptTemplate;
 import io.github.sshukla154.aido.debate.TurnParse;
 import io.github.sshukla154.aido.provenance.ProvenanceStore;
+import io.github.sshukla154.aido.provider.Challenger;
 import io.github.sshukla154.aido.provider.groq.ChallengerOutcome;
 import io.github.sshukla154.aido.provider.groq.GroqChallengerProvider;
 import io.github.sshukla154.aido.provenance.RunDescriptor;
@@ -61,6 +62,7 @@ public final class RoundRunner {
 
     private static final String SCHEMA_RESOURCE = "schema/debate-turn.schema.json";
     private static final String CHALLENGER_PROMPT_FILE = "challenger-prompt.txt";
+    private static final String CHALLENGER_TEMPLATE = "challenger-challenge";
 
     /**
      * Generous, because the failure it guards is a hung subprocess rather than a slow model. A
@@ -78,10 +80,10 @@ public final class RoundRunner {
     private final ObjectProvider<ClaudeCliClient> client;
     private final DebateTurnParser turnParser;
     private final ProvenanceStore provenance;
-    private final GroqChallengerProvider challenger;
+    private final Challenger challenger;
     private final String schemaText;
 
-    public RoundRunner(GroqChallengerProvider challenger,
+    public RoundRunner(Challenger challenger,
                        ObjectProvider<ClaudeCliClient> client, DebateTurnParser turnParser,
                        ProvenanceStore provenance) {
         this.challenger = challenger;
@@ -121,13 +123,15 @@ public final class RoundRunner {
         // The prompt file is written either way. When the API path works the file is the record of
         // what was asked; when it does not, it is what a person pastes. Writing it unconditionally
         // means the manual fallback needs no extra step at the moment it is needed.
-        Optional<DebateTurn> automatic = runAutomaticChallenger(question, opening, ledger);
-        if (automatic.isPresent()) {
-            log.info("challenger answered over the API; the round can complete without a person");
-        }
+        Optional<DebateTurn> automatic = runAutomaticChallenger(run, question, opening, ledger);
+        automatic.ifPresent(turn -> log.info(
+                "challenger answered over the API with {} claim(s); the round can complete "
+                        + "without a person", turn.claims().size()));
 
         new DiscussionState(question.question(), question.objective(), question.constraints(),
-                MAPPER.convertValue(opening, Map.class), null).writeTo(run.runDirectory());
+                MAPPER.convertValue(opening, Map.class),
+                automatic.map(t -> MAPPER.convertValue(t, Map.class)).orElse(null))
+                .writeTo(run.runDirectory());
 
         log.info("round started run={} openingClaims={} openPoints={}",
                 run.runId(), opening.claims().size(), ledger.open().size());
@@ -259,14 +263,26 @@ public final class RoundRunner {
      * with the prompt already on disk, which is strictly better than aborting a run whose architect
      * turn has already been paid for.
      */
-    private Optional<DebateTurn> runAutomaticChallenger(DiscussionQuestion question,
+    private Optional<DebateTurn> runAutomaticChallenger(RunHandle run, DiscussionQuestion question,
                                                         DebateTurn opening, ClaimLedger ledger) {
         // The schema is a request parameter on this path, so the prompt carries a pointer instead
         // of the 4,700-byte document a human would need pasted.
         String prompt = renderChallengerPrompt(question, opening, ledger,
                 "Reply as a single JSON object matching the schema supplied with this request.");
 
+        // Recorded before the call for the same reason the architect turn is: a crash mid-request
+        // must still leave the exact prompt on disk. The turn is numbered 2 whichever way it is
+        // answered, so a run reads the same regardless of which challenger produced it.
+        TurnHandle handle = provenance.recordRequest(run, new TurnRequest(
+                2, Participant.CHALLENGER.name(), CHALLENGER_TEMPLATE, prompt,
+                CHALLENGER_TEMPLATE, Sha256.ofUtf8(prompt), prompt,
+                SCHEMA_VERSION, Sha256.ofUtf8(schemaText), schemaText,
+                GroqChallengerProvider.MODEL, null, null, "API", 0L,
+                List.of("--response-format", "json_schema")), "{}");
+
         ChallengerOutcome outcome = challenger.challenge(prompt, schemaText);
+        provenance.recordResult(handle, TurnResult.from(outcome));
+
         switch (outcome) {
             case ChallengerOutcome.Success success -> {
                 TurnParse parse = turnParser.parse(Optional.of(success.structuredOutput()));
