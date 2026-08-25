@@ -20,14 +20,14 @@ import java.nio.file.StandardCopyOption;
  * that. Only power loss defeats it, and against power loss the ordering guarantee would not hold
  * either. A stated limitation rather than an oversight.
  */
-final class AtomicFiles {
+public final class AtomicFiles {
 
     private static final String TEMP_SUFFIX = ".tmp";
 
     private AtomicFiles() {
     }
 
-    static void writeString(Path target, String content) throws IOException {
+    public static void writeString(Path target, String content) throws IOException {
         writeBytes(target, content.getBytes(StandardCharsets.UTF_8));
     }
 

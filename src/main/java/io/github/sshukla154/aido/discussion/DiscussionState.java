@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import io.github.sshukla154.aido.provenance.AtomicFiles;
+
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -51,10 +53,17 @@ record DiscussionState(
         return new DiscussionQuestion(question, objective, constraints);
     }
 
+    /**
+     * Written atomically, and written more than once per run.
+     *
+     * <p>This is the only file the resume path reads, so a torn write is the difference between a run
+     * that can be finished by hand and one that is lost. A plain write leaves truncated JSON if the
+     * process dies mid-flush; temp-then-move keeps the previous version intact until the new one is
+     * complete.
+     */
     void writeTo(Path runDirectory) {
         try {
-            Files.writeString(runDirectory.resolve(FILE_NAME),
-                    MAPPER.writeValueAsString(this), StandardCharsets.UTF_8);
+            AtomicFiles.writeString(runDirectory.resolve(FILE_NAME), MAPPER.writeValueAsString(this));
         } catch (IOException e) {
             throw new UncheckedIOException("could not write " + FILE_NAME + " to " + runDirectory, e);
         }
