@@ -27,6 +27,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Guards a defect that shipped past 145 passing tests: the challenger answered over the API, the
@@ -151,6 +152,52 @@ class RoundRunnerChallengerTest {
         assertThat(stateFile.getParent().resolve("challenger-prompt.txt"))
                 .describedAs("the paste prompt is what makes the manual fallback usable")
                 .exists();
+    }
+
+    @Test
+    @DisplayName("a challenger that dies mid-call still leaves a run that can be finished by hand")
+    void architectTurnSurvivesAChallengerCrash() {
+        // The architect turn costs real money and about two minutes. Before this, the state file was
+        // written after the challenger, so anything that killed the process in that window threw the
+        // paid turn away and left nothing to resume from. --answer needs only the question and the
+        // architect turn, so the run stays completable manually.
+        Challenger exploding = (prompt, schema) -> {
+            throw new IllegalStateException("provider died mid-call");
+        };
+
+        assertThatThrownBy(() -> runOneRound(exploding))
+                .isInstanceOf(IllegalStateException.class);
+
+        Path latest = newestRun();
+        assertThat(latest.resolve("discussion-state.json"))
+                .describedAs("the architect turn must be on disk before the challenger is called")
+                .exists();
+
+        Map<?, ?> state = readState(latest);
+        assertThat(state.get("architectTurn")).isNotNull();
+        assertThat(state.get("challengerTurn"))
+                .describedAs("no challenger answer arrived, and none may be invented")
+                .isNull();
+        assertThat(state.get("question")).isNotNull();
+    }
+
+    private Path newestRun() {
+        try (var dirs = Files.list(runRoot)) {
+            return dirs.filter(Files::isDirectory)
+                    .max(java.util.Comparator.comparing(p -> p.getFileName().toString()))
+                    .orElseThrow(() -> new AssertionError("no run directory was created"));
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private static Map<?, ?> readState(Path runDirectory) {
+        try {
+            return MAPPER.readValue(
+                    Files.readString(runDirectory.resolve("discussion-state.json")), Map.class);
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     /** Drives one whole round, with both providers stubbed, and returns the state file. */

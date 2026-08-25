@@ -123,15 +123,25 @@ public final class RoundRunner {
         // The prompt file is written either way. When the API path works the file is the record of
         // what was asked; when it does not, it is what a person pastes. Writing it unconditionally
         // means the manual fallback needs no extra step at the moment it is needed.
+        // Written before the challenger is called, not after. The architect turn costs real money and
+        // takes about two minutes, while the challenger call can fail, hang, or be interrupted. With
+        // the state already on disk the run stays completable by hand through --answer, which needs
+        // only the question and this turn. Writing it afterwards meant any interruption in that
+        // window discarded a paid turn and left nothing to resume from.
+        new DiscussionState(question.question(), question.objective(), question.constraints(),
+                MAPPER.convertValue(opening, Map.class), null).writeTo(run.runDirectory());
+
         Optional<DebateTurn> automatic = runAutomaticChallenger(run, question, opening, ledger);
         automatic.ifPresent(turn -> log.info(
                 "challenger answered over the API with {} claim(s); the round can complete "
                         + "without a person", turn.claims().size()));
 
-        new DiscussionState(question.question(), question.objective(), question.constraints(),
-                MAPPER.convertValue(opening, Map.class),
-                automatic.map(t -> MAPPER.convertValue(t, Map.class)).orElse(null))
-                .writeTo(run.runDirectory());
+        // Rewritten only when the challenger answered. The write is atomic, so a failure here leaves
+        // the opening-only version intact rather than a torn file.
+        automatic.ifPresent(turn -> new DiscussionState(
+                question.question(), question.objective(), question.constraints(),
+                MAPPER.convertValue(opening, Map.class), MAPPER.convertValue(turn, Map.class))
+                .writeTo(run.runDirectory()));
 
         log.info("round started run={} openingClaims={} openPoints={}",
                 run.runId(), opening.claims().size(), ledger.open().size());
