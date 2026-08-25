@@ -1,6 +1,8 @@
 package io.github.sshukla154.aido.provenance;
 
 import io.github.sshukla154.aido.provider.claude.CliInvocation;
+import io.github.sshukla154.aido.provider.groq.ChallengerOutcome;
+import io.github.sshukla154.aido.provider.groq.GroqChallengerProvider;
 import io.github.sshukla154.aido.provider.claude.CliResult;
 import io.github.sshukla154.aido.provider.claude.ProcessOutcome;
 
@@ -39,6 +41,39 @@ public record TurnResult(
      * {@link CliResult}, because classification discards it -- which is the reason
      * {@link CliInvocation} carries both.
      */
+    /**
+     * Projects a challenger outcome onto the same record the CLI turns use.
+     *
+     * <p>One shape for both providers, so a run directory reads the same whichever answered. The
+     * fields a process has and an HTTP call does not -- exit code, pid, stream completeness -- are
+     * null rather than invented, because a zero exit code for something that never was a process
+     * would be a fabricated fact in a record whose whole purpose is not fabricating facts.
+     */
+    public static TurnResult from(ChallengerOutcome outcome) {
+        return switch (outcome) {
+            case ChallengerOutcome.Success s -> new TurnResult(
+                    "Success", null, s.rawBody(), "", true, true, true, s.wallMillis(),
+                    null, null, GroqChallengerProvider.MODEL, "stop", 200,
+                    new TokenUsage(s.usage().promptTokens(), s.usage().completionTokens(), 0, 0), null);
+            case ChallengerOutcome.RateLimited r -> new TurnResult(
+                    "RateLimited", null, "", "", true, true, true, r.wallMillis(),
+                    null, null, GroqChallengerProvider.MODEL, null, 429, null,
+                    r.message() + r.retryAfter().map(d -> " (retry after " + d.toSeconds() + "s)").orElse(""));
+            case ChallengerOutcome.Rejected r -> new TurnResult(
+                    "Rejected", null, "", "", true, true, true, r.wallMillis(),
+                    null, null, GroqChallengerProvider.MODEL, null, r.httpStatus(), null, r.message());
+            case ChallengerOutcome.Malformed m -> new TurnResult(
+                    "Malformed", null, m.rawExcerpt(), "", true, true, true, m.wallMillis(),
+                    null, null, GroqChallengerProvider.MODEL, null, null, null, m.reason());
+            case ChallengerOutcome.TransportFailure f -> new TurnResult(
+                    "TransportFailure", null, "", "", false, false, false, f.wallMillis(),
+                    null, null, GroqChallengerProvider.MODEL, null, null, null, f.reason());
+            case ChallengerOutcome.Unavailable u -> new TurnResult(
+                    "Unavailable", null, "", "", false, false, false, 0L,
+                    null, null, null, null, null, null, u.reason());
+        };
+    }
+
     public static TurnResult from(CliInvocation invocation) {
         ProcessOutcome outcome = invocation.outcome();
         CliResult result = invocation.result();
