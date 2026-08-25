@@ -84,7 +84,44 @@ making disagreement explicit for a person to adjudicate, not in resolving it.
 **Dropped:** multi-round orchestration, automatic convergence detection, and the pause-and-resume
 machinery that only a long debate would need.
 
-**Still open:** the atomicity gap above, which is a genuine defect rather than a design preference.
+**Closed since:** the atomicity gap above, though not as framed. Groq offers no idempotency key and there is no resume path for an unknown outcome to matter to, so the fix was narrower than the objection suggested. Details in the rejected-approaches record.
+
+## Addendum: what the tool actually produces
+
+Written after the experiment, once the tool could finish a round. It reframes the verdict rather
+than contradicting it, and it is the most useful thing learned here.
+
+The scoring above counted insights per question, because that is what a comparison against a
+self-critique call measures. The first complete artifact showed that this is not the shape of the
+output at all. Asked whether to move persistence dependencies to test scope, the architect did not
+produce a better answer than the control. It produced a **narrower** one:
+
+> the core test-scope recommendation is unchanged but is now stated as conditional on the unverified
+> runtime-vs-test classpath fact rather than as a settled conclusion
+
+It gave up asserting, and reduced the decision to a single checkable fact. A compile probe settled
+that fact in seconds, and it settled in favour of what had already shipped.
+
+**That is the product: not a verdict, and not a better opinion, but "here is the one thing you should
+go and verify."** A question is easier to act on than an answer you have to trust, and it is exactly
+what a person deciding an architecture question needs.
+
+Two consequences.
+
+The insight-per-question score understates the tool, because a narrowed decision does not register as
+an insight. It is not a new fact about the world; it is a smaller question. The 1-in-3 figure remains
+the honest number for what was measured, and what was measured turns out not to be the whole value.
+
+It also explains why one round is enough, more convincingly than the cost argument. Narrowing happens
+in the architect's *response* to criticism, which is the third turn of a single round. Further rounds
+would re-argue a claim already reduced to a fact-check, and the fact-check is faster and more reliable
+than either model.
+
+**Unchanged by this:** the verdict. One round, no convergence subsystem, later phases dropped. Also
+unchanged is the caveat below about the challenger's constrained output budget.
+
+Note the honest limit: this rests on one artifact. It is a reframing worth recording, not a second
+experiment, and it has not been tested on a question nobody had already decided.
 
 ## Caveats worth stating
 
