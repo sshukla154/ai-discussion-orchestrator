@@ -63,13 +63,22 @@ turn -- without that, comparing two saved discussions is meaningless.
 
 ## Status
 
-**Early.** Phase 0 (provider feasibility) is complete and its findings are in
-[docs/provider-feasibility.md](docs/provider-feasibility.md). What works today is the piece that
-carried the most risk: driving the Claude Code CLI as a child process and getting typed,
-schema-validated results back out of it, including across separate processes.
+**Complete for what it does, and deliberately smaller than it was planned to be.** One round runs
+end to end: the architect states a position, a challenger attacks it, the architect answers, and a
+markdown artifact lands in the run directory for a person to decide from.
 
-The discussion engine itself is not built yet. This was deliberate — the integration was proven
-before anything was layered on top of assumptions about it.
+The riskiest part was proven first -- driving the Claude Code CLI as a child process and getting
+typed, schema-validated results back out of it, including across separate processes. Those findings
+are in [docs/provider-feasibility.md](docs/provider-feasibility.md).
+
+What is *not* here is most of what the original plan called for: multi-round orchestration,
+automatic convergence detection, pause and resume, a database, a web UI. That is a measured
+decision, not unfinished work. Three real questions were run against a single self-critique call as
+a control, and the debate produced one genuine insight in three alongside two confident factual
+errors -- so rounds beyond the first were not worth their cost. The method, the numbers and the
+condition that would reverse the verdict are in
+[docs/value-experiment.md](docs/value-experiment.md); the dropped scope is in
+[docs/rejected-approaches.md](docs/rejected-approaches.md).
 
 ## Requirements
 
