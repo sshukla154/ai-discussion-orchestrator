@@ -181,6 +181,73 @@ class RoundRunnerChallengerTest {
         assertThat(state.get("question")).isNotNull();
     }
 
+    @Test
+    @DisplayName("a fully automatic round reaches an artifact with no reply file")
+    void automaticRoundProducesTheArtifact() throws IOException {
+        // The gap this closes: thirteen real runs produced three complete challenger turns and zero
+        // artifacts, because --answer demanded the reply as a file even when the run already held it.
+        // The markdown conclusion is what the tool exists to hand a person, so a round that cannot
+        // reach one is not finished.
+        Challenger stub = (prompt, schema) -> new ChallengerOutcome.Success(
+                challengerTurn(), "{}",
+                new ChallengerOutcome.TokenUsage(3176, 3182, Optional.of(324)), 7494L);
+
+        Path stateFile = runOneRound(stub);
+        Path runDirectory = stateFile.getParent();
+        Path artifact = runDirectory.resolve("discussion.md");
+
+        Path written = runnerWith(stub).answer(
+                runDirectory, Optional.empty(), artifact, "sonnet", "high");
+
+        assertThat(written).isEqualTo(artifact);
+        assertThat(artifact).exists();
+        String rendered = Files.readString(artifact);
+        assertThat(rendered)
+                .describedAs("the artifact has to carry both sides, or it is not a record of a debate")
+                .contains("Split the bloc rather than choosing between two wrong options.");
+        assertThat(rendered).contains("Should the persistence dependencies move to test scope?");
+    }
+
+    @Test
+    @DisplayName("a reply file still wins, so a person can correct what the API returned")
+    void replyFileOverridesTheRecordedTurn() throws IOException {
+        // Precedence matters the other way round too: the file is the human's channel, so it beats a
+        // recorded turn rather than being ignored when one exists.
+        Challenger stub = (prompt, schema) -> new ChallengerOutcome.Success(
+                challengerTurn(), "{}",
+                new ChallengerOutcome.TokenUsage(1, 1, Optional.empty()), 1L);
+
+        Path stateFile = runOneRound(stub);
+        Path runDirectory = stateFile.getParent();
+
+        Map<String, Object> corrected = new LinkedHashMap<>(challengerTurn());
+        corrected.put("positionSummary", "A person replaced the recorded turn by hand.");
+        Path replyFile = runDirectory.resolve("reply.json");
+        Files.writeString(replyFile, MAPPER.writeValueAsString(corrected));
+
+        Path artifact = runDirectory.resolve("overridden.md");
+        runnerWith(stub).answer(runDirectory, Optional.of(replyFile), artifact, "sonnet", "high");
+
+        assertThat(Files.readString(artifact))
+                .contains("A person replaced the recorded turn by hand.");
+    }
+
+    @Test
+    @DisplayName("with neither a recorded turn nor a file, the error names both ways forward")
+    void noChallengerAtAllIsReportedActionably() throws IOException {
+        Challenger unavailable = (prompt, schema) ->
+                new ChallengerOutcome.Unavailable("no key configured");
+
+        Path stateFile = runOneRound(unavailable);
+        Path runDirectory = stateFile.getParent();
+
+        assertThatThrownBy(() -> runnerWith(unavailable).answer(
+                runDirectory, Optional.empty(), runDirectory.resolve("x.md"), "sonnet", "high"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("--reply")
+                .hasMessageContaining("challenger-prompt.txt");
+    }
+
     private Path newestRun() {
         try (var dirs = Files.list(runRoot)) {
             return dirs.filter(Files::isDirectory)

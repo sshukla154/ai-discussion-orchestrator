@@ -149,17 +149,25 @@ public final class RoundRunner {
     }
 
     /**
-     * Ingests a challenger reply, runs the architect's response, and writes the artifact.
+     * Runs the architect's response and writes the artifact.
      *
-     * @param replyFile the challenger's structured reply, as pasted back from their chat
+     * <p>The challenger's turn comes from whichever source actually has it. When the API answered
+     * during {@code start} it is already in the recorded state, and asking for it again as a file
+     * would mean re-supplying something the run already holds -- which is why no artifact was ever
+     * produced for an automatic round. A reply file is needed only for the manual path, where a
+     * person pastes the answer back.
+     *
+     * @param replyFile the challenger's structured reply, or empty when the state already carries
+     *                  the turn
      */
-    public Path answer(Path runDirectory, Path replyFile, Path artifactFile, String model, String effort) {
+    public Path answer(Path runDirectory, Optional<Path> replyFile, Path artifactFile,
+                       String model, String effort) {
         DiscussionState state = DiscussionState.readFrom(runDirectory);
         DiscussionQuestion question = state.asQuestion();
 
         DebateTurn opening = requireTurn(
                 turnParser.parse(Optional.of(state.architectTurn())), "the recorded opening turn");
-        DebateTurn challenge = requireTurn(parseReply(replyFile), "the challenger reply in " + replyFile);
+        DebateTurn challenge = resolveChallenge(state, replyFile);
 
         ClaimLedger ledger = ClaimLedger.empty()
                 .fold(opening, Participant.ARCHITECT, 1)
@@ -334,6 +342,27 @@ public final class RoundRunner {
                 return Optional.empty();
             }
         }
+    }
+
+    /**
+     * Prefers a reply file when one is given, so a person can override or correct what the API
+     * returned. Otherwise falls back to the recorded turn, and only fails when neither exists --
+     * with a message naming both ways forward, since which one applies depends on how the round ran.
+     */
+    private DebateTurn resolveChallenge(DiscussionState state, Optional<Path> replyFile) {
+        if (replyFile.isPresent()) {
+            Path file = replyFile.get();
+            return requireTurn(parseReply(file), "the challenger reply in " + file);
+        }
+        Map<String, Object> recorded = state.challengerTurn();
+        if (recorded == null) {
+            throw new IllegalStateException(
+                    "this run has no recorded challenger turn, so one must be supplied with "
+                            + "--reply=<file>. The prompt to hand a challenger is in "
+                            + "challenger-prompt.txt in the run directory");
+        }
+        log.info("using the challenger turn already recorded in this run");
+        return requireTurn(turnParser.parse(Optional.of(recorded)), "the recorded challenger turn");
     }
 
     private TurnParse parseReply(Path replyFile) {

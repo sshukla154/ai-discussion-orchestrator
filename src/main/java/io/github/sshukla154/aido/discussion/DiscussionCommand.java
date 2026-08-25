@@ -74,8 +74,9 @@ public final class DiscussionCommand implements ApplicationRunner {
     private void answer(ApplicationArguments args) {
         Path runDirectory = requirePath(args, RUN,
                 "--answer needs --run=<run-directory>, as printed when the round started");
-        Path replyFile = requirePath(args, REPLY,
-                "--answer needs --reply=<file> holding the challenger's JSON reply");
+        // Optional on purpose. An automatic round already recorded the challenger turn, and
+        // demanding it again as a file is what stopped those rounds ever reaching an artifact.
+        Optional<Path> replyFile = optional(args, REPLY).map(Path::of);
         Path artifact = optional(args, OUT)
                 .map(Path::of)
                 .orElseGet(() -> runDirectory.resolve("discussion.md"));
