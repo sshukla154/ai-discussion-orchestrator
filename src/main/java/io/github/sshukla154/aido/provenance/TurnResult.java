@@ -103,6 +103,10 @@ public record TurnResult(
                 httpStatus = e.httpStatus().orElse(null);
                 failureReason = e.message();
             }
+            // Recorded under its own name so a run directory read months later says the login had
+            // expired, rather than leaving a generic error for someone to re-diagnose.
+            case CliResult.AuthenticationRequired a ->
+                    failureReason = "authentication required: " + a.message();
             case CliResult.PreflightError e -> failureReason = e.kind() + ": " + e.stderr();
             case CliResult.SpawnFailed f -> failureReason = f.message();
             case CliResult.Timeout t -> failureReason = "timed out after " + t.wallMillis() + " ms";

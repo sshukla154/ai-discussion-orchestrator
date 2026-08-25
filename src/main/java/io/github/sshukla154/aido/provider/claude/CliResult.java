@@ -59,6 +59,22 @@ public sealed interface CliResult {
     }
 
     /**
+     * The CLI has no usable login.
+     *
+     * <p>Its own case because retrying never helps, where retrying a transient API fault might.
+     * Nothing the application can do fixes it: the operator has to re-authenticate interactively,
+     * so the only useful response is to say so and stop.
+     *
+     * <p>Observed in the wild after a machine restart. It arrives as an ordinary error envelope --
+     * {@code is_error: true} with a <b>null</b> {@code api_error_status} -- so it is indistinguishable
+     * from a generic fault unless the message itself is inspected. That is why this is matched on
+     * text rather than a status code, and why {@link #message()} is retained verbatim.
+     */
+    record AuthenticationRequired(String message, String sessionId, long wallMillis)
+            implements CliResult {
+    }
+
+    /**
      * Rate limited or over quota.
      *
      * <p>Split out from {@link ApiError} because the response is to wait, not to report a fault.

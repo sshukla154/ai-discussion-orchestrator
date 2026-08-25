@@ -64,6 +64,48 @@ class CliResultParserTest {
     }
 
     @Test
+    @DisplayName("an expired login is its own outcome, because retrying never fixes it")
+    void expiredLoginIsNotAGenericApiError() {
+        // Transcribed from a real failure after a machine restart. Note api_error_status is absent:
+        // there is no code to branch on, so the message is the only signal there is. Before this, an
+        // expired login and a transient server fault were the same outcome, which meant the advice
+        // was "wait and retry" for something no amount of waiting fixes.
+        String stdout = """
+                {"type":"result","subtype":"success","is_error":true,                "terminal_reason":"api_error","api_error_status":null,                "result":"Failed to authenticate: OAuth session expired and could not be refreshed",                "session_id":"s","total_cost_usd":0,"modelUsage":{}}""";
+
+        CliResult result = parser.parse(exited(1, stdout, ""));
+
+        assertThat(result).isInstanceOf(CliResult.AuthenticationRequired.class);
+        assertThat(((CliResult.AuthenticationRequired) result).message())
+                .describedAs("the provider wording is kept verbatim, since text is the only signal")
+                .contains("OAuth session expired");
+    }
+
+    @Test
+    @DisplayName("the not-logged-in wording is recognised too")
+    void notLoggedInIsAlsoAnAuthFailure() {
+        String stdout = """
+                {"is_error":true,"api_error_status":null,                "result":"Not logged in - Please run /login","session_id":"s","modelUsage":{}}""";
+
+        assertThat(parser.parse(exited(1, stdout, "")))
+                .isInstanceOf(CliResult.AuthenticationRequired.class);
+    }
+
+    @Test
+    @DisplayName("an ordinary server fault stays a generic error, so the advice is not wrong")
+    void serverFaultIsStillAnApiError() {
+        // The guard against over-matching. Telling someone to re-authenticate when the real problem
+        // was a 500 wastes their time, so the check has to stay narrow.
+        String stdout = """
+                {"is_error":true,"api_error_status":500,                "result":"Internal server error, please try again","session_id":"s","modelUsage":{}}""";
+
+        CliResult result = parser.parse(exited(1, stdout, ""));
+
+        assertThat(result).isInstanceOf(CliResult.ApiError.class);
+        assertThat(((CliResult.ApiError) result).httpStatus()).contains(500);
+    }
+
+    @Test
     @DisplayName("a 429 is rate limiting, not a generic API error")
     void rateLimitIsItsOwnClass() {
         // Structurally identical to any other error status. Without its own case, every caller

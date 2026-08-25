@@ -142,8 +142,31 @@ public final class CliResultParser {
         if (status.filter(s -> s == HTTP_TOO_MANY_REQUESTS).isPresent()) {
             return new CliResult.RateLimited(message, status, sessionId, outcome.wallMillis());
         }
+        // Checked before the generic case. An expired login arrives with a null status, so there is
+        // no code to branch on and the message is the only signal. Matching on text is brittle by
+        // nature, which is why the message is kept verbatim on the result rather than discarded in
+        // favour of a tidy enum.
+        if (looksLikeAnAuthFailure(message)) {
+            return new CliResult.AuthenticationRequired(message, sessionId, outcome.wallMillis());
+        }
         return new CliResult.ApiError(message, status, sessionId,
                 outcome.stderr() == null ? "" : outcome.stderr().strip(), outcome.wallMillis());
+    }
+
+    /**
+     * Whether an error message describes a login problem rather than a transient fault.
+     *
+     * <p>Deliberately narrow. A false positive here would tell someone to re-authenticate when the
+     * real problem was a server error, which wastes their time; a false negative merely leaves the
+     * outcome as a generic fault, which is what it was before. The two observed phrasings are an
+     * expired session and the CLI's own not-logged-in message.
+     */
+    private boolean looksLikeAnAuthFailure(String message) {
+        String m = message.toLowerCase(Locale.ROOT);
+        return m.contains("failed to authenticate")
+                || m.contains("oauth session expired")
+                || m.contains("not logged in")
+                || m.contains("please run /login");
     }
 
     /**
