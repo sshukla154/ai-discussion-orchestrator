@@ -142,3 +142,26 @@ needs a local backend and a local database. A Pages-hosted interface could only 
 by having a public HTTPS page call the visitor's own machine, which is a mixed-content violation,
 a cross-origin problem, and the precise opposite of an application that is never publicly
 exposed.
+
+## Multi-round debate and automatic convergence detection
+
+Dropped after measurement, not on taste. See [value-experiment.md](value-experiment.md).
+
+The debate produced roughly one genuine insight per three questions, alongside two confident
+factual errors that a reader without independent knowledge would have believed. A second round
+would spend real money having the architect rebut claims a person can falsify in seconds. The
+free tier also allows one round per minute, not three, so the constraint and the quality data
+agree.
+
+The convergence subsystem existed to decide automatically when a debate had converged. At one
+round there is nothing to converge, and the useful output turned out to be the disagreement
+itself rather than a verdict about it -- which is what the design always claimed, and is now
+measured rather than asserted.
+
+Also dropped with it: the pause-and-resume machinery, which only a long debate needs, and the
+`convergence` field on an opening turn, which is meaningless when no other position exists yet.
+A model asked to fill it chose `DISAGREEMENT` with nothing to disagree about.
+
+**Reversal condition.** A larger challenger budget. The challenger ran at roughly a quarter of
+the control arm output, forced by the free tier rather than chosen, so this establishes a floor
+for the value of a debate and not a ceiling.
