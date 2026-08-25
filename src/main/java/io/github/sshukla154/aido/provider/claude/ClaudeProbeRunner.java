@@ -87,6 +87,8 @@ public final class ClaudeProbeRunner implements ApplicationRunner {
             case CliResult.Truncated t ->
                     log.error("PROBE hit the output ceiling after {} tokens; the reply is a fragment",
                             t.usage().outputTokens());
+            case CliResult.AuthenticationRequired a -> log.error(
+                    "PROBE cannot run: {}. Start an interactive session and run /login.", a.message());
             // Error text arrives in the same envelope field as an ordinary reply, so it is
             // treated as response content and kept at DEBUG.
             case CliResult.RateLimited r -> {

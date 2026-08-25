@@ -225,6 +225,11 @@ public final class RoundRunner {
             case CliResult.Truncated t -> throw new IllegalStateException(
                     "the architect ran out of output budget after " + t.usage().outputTokens()
                             + " tokens, so the reply is a fragment rather than a position");
+            // Named separately from the generic error because the fix is different in kind: no
+            // amount of waiting or retrying restores a login, so the message says what to do.
+            case CliResult.AuthenticationRequired a -> throw new IllegalStateException(
+                    "the Claude CLI has no usable login (" + a.message()
+                            + "). Start an interactive session and run /login, then try again");
             case CliResult.RateLimited r -> throw new IllegalStateException(
                     "rate limited; wait and resume from the run directory");
             case CliResult.ApiError e -> throw new IllegalStateException(

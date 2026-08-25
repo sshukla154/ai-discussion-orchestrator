@@ -305,6 +305,9 @@ public final class ClaudeCliClient {
                     "CLI hit the output ceiling model={} out={} wallMs={}; the reply is a fragment, "
                             + "not a position", t.resolvedModel().orElse("unresolved"),
                     t.usage().outputTokens(), t.wallMillis());
+            case CliResult.AuthenticationRequired a -> log.error(
+                    "CLI has no usable login, so no turn can run until it is restored: {}",
+                    a.message());
             case CliResult.RateLimited r -> log.warn("CLI rate limited status={} wallMs={}",
                     r.httpStatus().map(String::valueOf).orElse("-"), r.wallMillis());
             case CliResult.ApiError e -> log.warn("CLI api error status={} wallMs={}",
