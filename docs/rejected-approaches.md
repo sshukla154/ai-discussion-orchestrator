@@ -165,3 +165,40 @@ A model asked to fill it chose `DISAGREEMENT` with nothing to disagree about.
 **Reversal condition.** A larger challenger budget. The challenger ran at roughly a quarter of
 the control arm output, forced by the free tier rather than chosen, so this establishes a floor
 for the value of a debate and not a ceiling.
+
+## Keeping persistence in compile scope and excluding the autoconfigurations
+
+Proposed by the independent challenger during the value experiment: leave Spring Data JPA, the
+SQLite driver, the Hibernate dialect and Flyway in compile scope, and disable them with
+`@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, ...})` instead of moving
+them to test scope. It was the one genuinely novel option the experiment produced, so it was
+evaluated properly rather than dismissed.
+
+**Rejected on four counts, three of them checked rather than reasoned.**
+
+1. **It cannot be implemented alongside the current scoping.** `exclude` takes class literals, so
+   those classes must be on the compile classpath. A probe referencing
+   `DataSourceAutoConfiguration` from main sources fails with `package
+   org.springframework.boot.jdbc.autoconfigure does not exist`. The two approaches are mutually
+   exclusive: adopting this one means first undoing the test scoping it was meant to replace.
+2. **The enforcement it offers is weaker than what already exists.** With test scope the classes
+   are absent from the runtime classpath entirely, so no autoconfiguration can fire whether it is
+   excluded or not. `exclude` only switches off wiring for classes that remain present and
+   loadable.
+3. **Its strongest premise has since become false.** Both the challenger and the control argued
+   partly on churn: phase two is imminent, so the dependencies will move back within weeks. The
+   value experiment then cancelled the later phases. There is no impending reversal, which makes
+   test scope more justified than when it was chosen, not less.
+4. **Half of it was already done.** The proposal also asked for a connection pool of one. That has
+   been set since the persistence spike, in the profile where a database actually exists.
+
+**What was right about it, and is worth keeping.** The underlying observation -- that Maven scope
+was never the thing protecting anything -- is correct, and it was the control arm's best point
+too. That enforcement lives in an ArchUnit rule which fails the build if main sources reference
+`jakarta.persistence`, `org.hibernate`, `org.springframework.data.jpa` or `org.flywaydb`, and it
+holds regardless of what the pom says. The challenger was arguing for a weaker version of a
+guarantee the project already had.
+
+**Reversal condition.** A phase that genuinely needs persistence at runtime. At that point the
+dependencies move to compile scope because they are actually used, and `exclude` remains the wrong
+tool -- the ArchUnit rule is what would be relaxed, deliberately and visibly.
